@@ -1,5 +1,5 @@
-pandas
-PyMySQL
-mysql-connector-python
-#mysql module(s)
+pandas==1.3.5
+SQLAlchemy==1.4.36
+PyMySQL==1.0.2
+mysql-connector-python==8.0.29
 #GCP module(s)
