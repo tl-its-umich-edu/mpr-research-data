@@ -7,6 +7,20 @@
    > "SCW | M-Write" shared Google Drive under  
    > "MPR Technical" > "MPR Config Secrets" > "Prod".
 2. Get GCP credentials for accessing bucket
-3. `docker-compose up --build`  
-   When running in local development environment, be sure to
-   activate VPN so the application can reach the MPR DB.
+3. Use `docker-compose up --build` to run the application  
+   1. When running in local development environment, be sure to
+      activate VPN so the application can reach the MPR DB.
+   2. If `start.sh` ends with `sleep infinity` (or something similar) to
+      keep the container running after the application exits, press ^C
+      to stop the container when desired.
+   3. To view the console output of the container, run:  
+      ```
+      docker-compose logs -t
+      ```  
+      to see it.  The log will remain available until the container is
+      removed, e.g., using `docker-compose down`.
+   5. While the container is running, interactive access to a shell
+      within the container can be obtained using:  
+      ```
+      docker-compose exec job /bin/bash
+      ```
