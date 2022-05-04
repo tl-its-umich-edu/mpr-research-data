@@ -12,16 +12,16 @@
       activate VPN so the application can reach the MPR DB.  The
       "VPN-remote-ITS_Special_Developer_Access" profile **_MUST_**
       be used.
-   3. If `start.sh` ends with `sleep infinity` (or something similar) to
+   2. If `start.sh` ends with `sleep infinity` (or something similar) to
       keep the container running after the application exits, press ^C
       to stop the container when desired.
-   4. To view the console output of the container, run:  
+   3. To view the console output of the container, run:  
       ```
       docker-compose logs -t
       ```  
       to see it.  The log will remain available until the container is
       removed, e.g., using `docker-compose down`.
-   5. While the container is running, interactive access to a shell
+   4. While the container is running, interactive access to a shell
       within the container can be obtained using:  
       ```
       docker-compose exec job /bin/bash
