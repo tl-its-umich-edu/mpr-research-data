@@ -7,4 +7,6 @@
    > "SCW | M-Write" shared Google Drive under  
    > "MPR Technical" > "MPR Config Secrets" > "Prod".
 2. Get GCP credentials for accessing bucket
-3. `docker-compose up --build`
+3. `docker-compose up --build`  
+   When running in local development environment, be sure to
+   activate VPN so the application can reach the MPR DB.
