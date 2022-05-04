@@ -33,9 +33,7 @@ LEFT JOIN canvas_students AS authors ON
 LEFT JOIN criteria ON
   peer_review_comments.criterion_id = criteria.id
 WHERE
-  canvas_courses.id IN (
-    516081
-  )
+  canvas_courses.id = {}
 ORDER BY
   prompts.id,
   authors.sortable_name,
