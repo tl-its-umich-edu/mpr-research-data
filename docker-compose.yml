@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  job:
+    build:
+      context: .
+      dockerfile: Dockerfile
+#    env_file:
+#      - .env
+    volumes:
+      - ${HOME}/secrets/mpr:/app/config/secrets
+    container_name: mpr-research-data
+
+#    user: 1001320000:10000
+#    group_add:
+#      - 0
