@@ -6,8 +6,25 @@ dbParams = json.load(open('database-research_ro.json'))
 connectString = f'mysql+pymysql://{dbParams["USER"]}:{dbParams["PASSWORD"]}@{dbParams["HOST"]}:{dbParams["PORT"]}/{dbParams["NAME"]}'
 engine = sql.create_engine(connectString)
 
-# FIXME: use query to get course IDs with reviews completed in last 6 months
-courseQuery = 'select id, name FROM canvas_courses order by id desc limit 5'
+# appropriate number of months to approximate the length of academic term
+# by trial and error, 4 seems to be good
+# FIXME: make this a configuration parameter
+numberOfMonths = 4
+
+courseQuery = f'''
+SELECT
+  DISTINCT ca.course_id as id,
+  cc.name as name
+FROM
+  mwrite_peer_review.canvas_assignments ca
+LEFT JOIN mwrite_peer_review.canvas_courses cc ON
+  cc.id = ca.course_id
+WHERE
+  is_peer_review_assignment = 1
+  AND ca.due_date_utc BETWEEN NOW() - INTERVAL {numberOfMonths} MONTH AND NOW()
+ORDER BY
+  ca.due_date_utc DESC
+'''
 
 with engine.connect() as connection:
     courseDF = pd.read_sql(courseQuery, connection)
