@@ -1,4 +1,6 @@
 import json
+import sys
+
 import pandas as pd
 import sqlalchemy as sql
 
@@ -29,19 +31,21 @@ ORDER BY
 with engine.connect() as connection:
     courseDF = pd.read_sql(courseQuery, connection)
 
-print(courseDF)
-
 with open('query.sql') as queryFile:
     reviewQuery = ''.join(queryFile.readlines())
 
-# FIXME: query should contain a place to substitute parameters.
-# I.e., one course ID at a time.
+for _, row in courseDF.iterrows():
+    (courseID, courseName) = row
+    outputFilename = f'{courseID} - {courseName}.tsv'
+    print(outputFilename)
 
-with engine.connect() as connection:
-    reviewDF = pd.read_sql(reviewQuery, connection)
+    with engine.connect() as connection:
+        reviewDF = pd.read_sql(reviewQuery.format(courseID), connection)
 
-print(reviewDF)
+    print(reviewDF)
 
-# FIXME: format reviewDF as text file and store in GCP
-# Preferrably, format data as TSV (CSV only if *necessary*).
-# Upload data to GCP and store in bucket.
+    sys.stdout.flush()
+
+    # FIXME: format reviewDF as text file and store in GCP
+    # Preferrably, format data as TSV (CSV only if *necessary*).
+    # Upload data to GCP and store in bucket.
