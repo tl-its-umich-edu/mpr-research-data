@@ -9,11 +9,13 @@
 2. Get GCP credentials for accessing bucket
 3. Use `docker-compose up --build` to run the application  
    1. When running in local development environment, be sure to
-      activate VPN so the application can reach the MPR DB.
-   2. If `start.sh` ends with `sleep infinity` (or something similar) to
+      activate VPN so the application can reach the MPR DB.  The
+      "VPN-remote-ITS_Special_Developer_Access" profile **_MUST_**
+      be used.
+   3. If `start.sh` ends with `sleep infinity` (or something similar) to
       keep the container running after the application exits, press ^C
       to stop the container when desired.
-   3. To view the console output of the container, run:  
+   4. To view the console output of the container, run:  
       ```
       docker-compose logs -t
       ```  
