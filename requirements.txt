@@ -1,3 +1,5 @@
 pandas
+PyMySQL
+mysql-connector-python
 #mysql module(s)
 #GCP module(s)
