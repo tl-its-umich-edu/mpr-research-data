@@ -4,7 +4,6 @@ import sqlalchemy as sql
 
 dbParams = json.load(open('database-research_ro.json'))
 connectString = f'mysql+pymysql://{dbParams["USER"]}:{dbParams["PASSWORD"]}@{dbParams["HOST"]}:{dbParams["PORT"]}/{dbParams["NAME"]}'
-print(connectString)
 engine = sql.create_engine(connectString)
 
 # FIXME: use query to get course IDs with reviews completed in last 6 months
