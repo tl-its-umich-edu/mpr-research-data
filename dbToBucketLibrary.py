@@ -5,9 +5,12 @@ import os
 import sys
 from google.cloud import storage
 
+#DEFAULT VARIABLES
+#------------------------------------------------------------------------------------------
 defaultQueryFolder = 'SQL Query Files/'
 defaultCredsFolder = 'Credentials/'
 defaultTargetBucketName = 'mpr-research-data-uploads'
+#------------------------------------------------------------------------------------------
 
 def queryRetriever(queryName, queryModifier = False, queryFolder = defaultQueryFolder):
     with open(queryFolder+queryName) as queryFile:

@@ -1,5 +1,8 @@
 from dbToBucketLibrary import *
 
+
+#CONFIG VARIABLES
+#------------------------------------------------------------------------------------------
 targetProjectName = 'mwrite-a835'
 targetBucketName = 'mpr-research-data-uploads'
 
@@ -7,7 +10,7 @@ numberOfMonths = 4
 
 queryTemplateDict = {'course': 'courseQuery.sql', 'retrieve': 'retrieveQuery.sql'}
 credsDict = {'db': 'database-research_ro.json', 'gcp': 'gcpAccessKey.json'}
-
+#------------------------------------------------------------------------------------------
 
 os.environ.setdefault("GCLOUD_PROJECT", targetProjectName)
 
