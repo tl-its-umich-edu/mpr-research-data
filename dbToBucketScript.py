@@ -3,16 +3,13 @@ from dbToBucketLibrary import *
 
 #CONFIG VARIABLES
 #------------------------------------------------------------------------------------------
-targetProjectName = 'mwrite-a835'
-targetBucketName = 'mpr-research-data-uploads'
+targetBucketName = os.getenv('GCLOUD_BUCKET')
 
-numberOfMonths = 4
+numberOfMonths = os.getenv('NUMBER_OF_MONTHS')
 
-queryTemplateDict = {'course': 'courseQuery.sql', 'retrieve': 'retrieveQuery.sql'}
-credsDict = {'db': 'database-research_ro.json', 'gcp': 'gcpAccessKey.json'}
+queryTemplateDict = {'course': os.getenv('COURSE_QEURY'), 'retrieve': os.getenv('RETRIEVE_QUERY')}
+credsDict = {'db': os.getenv('DB_KEY'), 'gcp': os.getenv('GCP_KEY')}
 #------------------------------------------------------------------------------------------
-
-os.environ.setdefault("GCLOUD_PROJECT", targetProjectName)
 
 sqlEngine, gcpClient = connectionSetup(credsDict)
 sys.stdout.flush()

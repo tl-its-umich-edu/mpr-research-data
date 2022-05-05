@@ -7,9 +7,10 @@ from google.cloud import storage
 
 #DEFAULT VARIABLES
 #------------------------------------------------------------------------------------------
-defaultQueryFolder = 'SQL Query Files/'
-defaultCredsFolder = 'Credentials/'
-defaultTargetBucketName = 'mpr-research-data-uploads'
+defaultQueryFolder = os.getenv('QUERY_FOLDER')
+defaultCredsFolder = os.getenv('CREDENTIALS_FOLDER')
+defaultTargetBucketName = os.getenv('GCLOUD_BUCKET')
+
 #------------------------------------------------------------------------------------------
 
 def queryRetriever(queryName, queryModifier = False, queryFolder = defaultQueryFolder):
