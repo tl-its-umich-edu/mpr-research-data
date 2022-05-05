@@ -5,8 +5,11 @@ import os
 import sys
 from google.cloud import storage
 
+defaultQueryFolder = 'SQL Query Files/'
+defaultCredsFolder = 'Credentials/'
+defaultTargetBucketName = 'mpr-research-data-uploads'
 
-def queryRetriever(queryName, queryModifier = False, queryFolder = 'SQL Query Files/'):
+def queryRetriever(queryName, queryModifier = False, queryFolder = defaultQueryFolder):
     with open(queryFolder+queryName) as queryFile:
         queryLines = ''.join(queryFile.readlines())
     
@@ -16,7 +19,23 @@ def queryRetriever(queryName, queryModifier = False, queryFolder = 'SQL Query Fi
     return queryLines
 
 
-def connectionSetup(credsDict, credsFolder = 'Credentials/'):
+def connectionSetup(credsDict, credsFolder = defaultCredsFolder):
+
+    verifyCredExists = True
+    if os.path.exists(credsFolder):
+        for file in credsDict:
+            if not os.path.exists(credsFolder+credsDict[file]):
+                print(f'JSON Credentials file for {credsDict[file]} missing.')
+                verifyCredExists = False
+    else:
+        os.makedirs(credsFolder)
+        print('No Credentials folder found, please place keys in Credentials Folder.')
+        verifyCredExists = False
+
+    if not verifyCredExists:
+        print('Could not find needed key JSON files.')
+        sys.exit("Exiting.")
+
 
     try:
         dbParams = json.load(open(credsFolder+credsDict['db']))
@@ -76,7 +95,7 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseModifier, engine):
     return retrieveDF
 
 
-def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName = 'mpr-research-data-uploads' ):
+def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName = defaultTargetBucketName ):
 
     bucket = client.bucket(targetBucketName)
 

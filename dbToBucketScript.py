@@ -20,7 +20,7 @@ sys.stdout.flush()
 retrieveQueryDF = retrieveQueryMaker(queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
 sys.stdout.flush()
 
-sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient)
+sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
 sys.stdout.flush()
 
 print('All steps complete.')
