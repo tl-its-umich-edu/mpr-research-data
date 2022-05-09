@@ -32,10 +32,12 @@ def getDBCreds():
 
     allKeyPartsFound = True
     for credPart in dbCredsDefaultDict:
-        dbCredsDict[credPart] = os.getenv('DB_'+credPart, dbCredsDefaultDict[credPart])
+        dbCredsDict[credPart] = os.getenv(
+            'DB_'+credPart, dbCredsDefaultDict[credPart])
 
         if not dbCredsDict[credPart]:
-            print(f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}')
+            print(
+                f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}')
             allKeyPartsFound = False
 
     if not allKeyPartsFound:
@@ -45,7 +47,7 @@ def getDBCreds():
 
 
 def queryRetriever(queryName, queryModifier=False,
-                queryFolder=defaultQueryFolder):
+                   queryFolder=defaultQueryFolder):
     with open(os.path.join(queryFolder, queryName)) as queryFile:
         queryLines = ''.join(queryFile.readlines())
 
@@ -73,7 +75,7 @@ def makeGCPConnection(gcpJSON):
 
     try:
 
-        # I am not sure why this is how GCloud needs to accept a JSON String. 
+        # I am not sure why this is how GCloud needs to accept a JSON String.
         # Will look into alternatives.
         with open('gcpAccessKey.json', 'w') as jsonFile:
             jsonFile.write(gcpJSON)
@@ -132,7 +134,8 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
         try:
             print(f'Slicing and saving: {outputFilename}')
             saveDF = retrieveDF[retrieveDF['CourseID'] == courseID]
-            saveDF.to_csv(outputFilename, sep="\t", quoting=3, quotechar="", escapechar="\\")
+            saveDF.to_csv(outputFilename, sep="\t", quoting=3,
+                          quotechar="", escapechar="\\")
 
         except Exception as e:
             print(f'Error Message: {e}')
@@ -166,12 +169,14 @@ gcpClient = makeGCPConnection(gcpJSON)
 
 # RETRIEVE COURSE INFO
 # --------------------------------------------------------------------------
-courseQueryDF = courseQueryMaker(queryTemplateDict['course'], numberOfMonths, sqlEngine)
+courseQueryDF = courseQueryMaker(
+    queryTemplateDict['course'], numberOfMonths, sqlEngine)
 # sys.stdout.flush()
 
 # RETRIEVE COURSE DATA
 # --------------------------------------------------------------------------
-retrieveQueryDF = retrieveQueryMaker(queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
+retrieveQueryDF = retrieveQueryMaker(
+    queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
 # sys.stdout.flush()
 
 # SEND TO GCP BUCKET
