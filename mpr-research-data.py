@@ -1,5 +1,5 @@
-#LIBRARIES TO IMPORT
-#------------------------------------------------------------------------------------------
+# LIBRARIES TO IMPORT
+# --------------------------------------------------------------------------
 import pandas as pd
 import sqlalchemy as sql
 import os
@@ -7,23 +7,24 @@ import sys
 from google.cloud import storage
 
 
-#SETUP CONFIG VARIABLES
-#------------------------------------------------------------------------------------------
+# SETUP CONFIG VARIABLES
+# --------------------------------------------------------------------------
 targetBucketName = os.getenv('GCLOUD_BUCKET', 'mpr-research-data-uploads')
 
 numberOfMonths = os.getenv('NUMBER_OF_MONTHS', 4)
 
 defaultQueryFolder = os.getenv('QUERY_FOLDER', 'queries')
-queryTemplateDict = {'course': os.getenv('COURSE_QEURY', 'courseQuery.sql'), \
+queryTemplateDict = {'course': os.getenv('COURSE_QEURY', 'courseQuery.sql'),
                      'retrieve': os.getenv('RETRIEVE_QUERY', 'retrieveQuery.sql')}
 
 
-#FUNCTIONS
-#------------------------------------------------------------------------------------------
+# FUNCTIONS
+# --------------------------------------------------------------------------
 
 def getDBCreds():
 
-    dbCredsDefaultDict = {'NAME':None, 'USER':None, 'PASSWORD':None, 'HOST':None, 'PORT':3306}
+    dbCredsDefaultDict = {'NAME': None, 'USER': None, 'PASSWORD': None, 
+                          'HOST': None, 'PORT': 3306}
     dbCredsDict = {}
 
     allKeyPartsFound = True
@@ -40,7 +41,8 @@ def getDBCreds():
     return dbCredsDict
 
 
-def queryRetriever(queryName, queryModifier = False, queryFolder = defaultQueryFolder):
+def queryRetriever(queryName, queryModifier=False, 
+                    queryFolder=defaultQueryFolder):
     with open(os.path.join(queryFolder, queryName)) as queryFile:
         queryLines = ''.join(queryFile.readlines())
     
@@ -116,7 +118,7 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseModifier, engine):
     return retrieveDF
 
 
-def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName = targetBucketName ):
+def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucketName):
 
     bucket = client.bucket(targetBucketName)
 
@@ -147,32 +149,32 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName = targetBuc
     return True
 
 
-#RETRIEVE KEYS
-#------------------------------------------------------------------------------------------
+# RETRIEVE KEYS
+# --------------------------------------------------------------------------
 
 dbParams = getDBCreds()
 gcpJSON = os.getenv('GCP_KEY')
 
 
-#ESTABLISH CONNECTIONS
-#------------------------------------------------------------------------------------------
+# ESTABLISH CONNECTIONS
+# --------------------------------------------------------------------------
 sqlEngine = makeDBConnection(dbParams)
 gcpClient = makeGCPConnection(gcpJSON)
-#sys.stdout.flush()
+# sys.stdout.flush()
 
-#RETRIEVE COURSE INFO
-#------------------------------------------------------------------------------------------
+# RETRIEVE COURSE INFO
+# --------------------------------------------------------------------------
 courseQueryDF = courseQueryMaker(queryTemplateDict['course'], numberOfMonths, sqlEngine)
-#sys.stdout.flush()
+# sys.stdout.flush()
 
-#RETRIEVE COURSE DATA
-#------------------------------------------------------------------------------------------
+# RETRIEVE COURSE DATA
+# --------------------------------------------------------------------------
 retrieveQueryDF = retrieveQueryMaker(queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
-#sys.stdout.flush()
+# sys.stdout.flush()
 
-#SEND TO GCP BUCKET
-#------------------------------------------------------------------------------------------
+# SEND TO GCP BUCKET
+# --------------------------------------------------------------------------
 sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
-#sys.stdout.flush()
+# sys.stdout.flush()
 
 print('All steps complete.')
