@@ -33,7 +33,7 @@ def getDBCreds():
     allKeyPartsFound = True
     for credPart in dbCredsDefaultDict:
         dbCredsDict[credPart] = os.getenv(
-            'DB_'+credPart, dbCredsDefaultDict[credPart])
+            'DB_' + credPart, dbCredsDefaultDict[credPart])
 
         if not dbCredsDict[credPart]:
             print(
@@ -109,7 +109,7 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine):
 def retrieveQueryMaker(retrieveQueryTemplate, courseModifier, engine):
 
     try:
-        courseIDString = ',\n   '.join(map(str, courseModifier))+'\n'
+        courseIDString = ',\n   '.join(map(str, courseModifier)) + '\n'
         retrieveQuery = queryRetriever(retrieveQueryTemplate, courseIDString)
         with engine.connect() as connection:
             retrieveDF = pd.read_sql(retrieveQuery, connection)
