@@ -1,2 +1,4 @@
 .ipynb_checkpoints
-Credentials
+.env
+gcpAccessKey.json
+datavase-research-ro.json
