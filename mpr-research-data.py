@@ -23,8 +23,11 @@ queryTemplateDict = {'course': os.getenv('COURSE_QEURY', 'courseQuery.sql'),
 
 def getDBCreds():
 
-    dbCredsDefaultDict = {'NAME': None, 'USER': None, 'PASSWORD': None, 
-                          'HOST': None, 'PORT': 3306}
+    dbCredsDefaultDict = {'NAME': None,
+                          'USER': None,
+                          'PASSWORD': None,
+                          'HOST': None,
+                          'PORT': 3306}
     dbCredsDict = {}
 
     allKeyPartsFound = True
@@ -42,7 +45,7 @@ def getDBCreds():
 
 
 def queryRetriever(queryName, queryModifier=False,
-            queryFolder=defaultQueryFolder):
+                queryFolder=defaultQueryFolder):
     with open(os.path.join(queryFolder, queryName)) as queryFile:
         queryLines = ''.join(queryFile.readlines())
 
@@ -70,7 +73,8 @@ def makeGCPConnection(gcpJSON):
 
     try:
 
-        # I am not sure why this is how GCloud needs to accept a JSON String. Will look into alternatives.
+        # I am not sure why this is how GCloud needs to accept a JSON String. 
+        # Will look into alternatives.
         with open('gcpAccessKey.json', 'w') as jsonFile:
             jsonFile.write(gcpJSON)
         client = storage.Client.from_service_account_json('gcpAccessKey.json')
@@ -125,7 +129,7 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
         (courseID, courseName) = row
         outputFilename = f'{courseID} - {courseName}.tsv'
 
-        try: 
+        try:
             print(f'Slicing and saving: {outputFilename}')
             saveDF = retrieveDF[retrieveDF['CourseID'] == courseID]
             saveDF.to_csv(outputFilename, sep="\t", quoting=3, quotechar="", escapechar="\\")
