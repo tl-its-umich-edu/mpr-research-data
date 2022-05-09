@@ -1,6 +1,4 @@
-pandas
-SQLAlchemy
-PyMySQL
-google.cloud.storage
-#mysql-connector-python
-
+pandas==1.4
+SQLAlchemy==1.4
+PyMySQL==1.0
+google.cloud.storage==2.3
