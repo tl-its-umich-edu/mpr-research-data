@@ -1,0 +1,9 @@
+# File : .pep8speaks.yml
+
+scanner:
+  linter: pycodestyle  # Other option is flake8
+
+pycodestyle:  # Same as scanner.linter value. Other option is flake8
+  max-line-length: 119  # Default is 79 in PEP 8
+  ignore:  # Errors and warnings to ignore
+    - E401  # multiple imports on one line
