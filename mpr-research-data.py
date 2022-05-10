@@ -111,10 +111,10 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine):
         sys.exit('Exiting.')
 
 
-def retrieveQueryMaker(retrieveQueryTemplate, courseModifier, engine):
+def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine):
 
     try:
-        courseIDString = ',\n   '.join(map(str, courseModifier)) + '\n'
+        courseIDString = ','.join(map(str, courseIDs))
         retrieveQuery = queryRetriever(retrieveQueryTemplate, courseIDString)
         with engine.connect() as connection:
             retrieveDF = pd.read_sql(retrieveQuery, connection)
