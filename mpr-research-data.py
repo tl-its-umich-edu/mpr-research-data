@@ -2,9 +2,16 @@
 # --------------------------------------------------------------------------
 import pandas as pd
 import sqlalchemy as sql
+from google.cloud import storage
 import os
 import sys
-from google.cloud import storage
+import logging
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] - %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+    level=logging.INFO
+)
 
 
 # SETUP CONFIG VARIABLES
@@ -36,7 +43,7 @@ def getDBCreds():
             'DB_' + credPart, dbCredsDefaultDict[credPart])
 
         if not dbCredsDict[credPart]:
-            print(
+            logging.error(
                 f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}')
             allKeyPartsFound = False
 
@@ -44,6 +51,36 @@ def getDBCreds():
         sys.exit('Exiting.')
 
     return dbCredsDict
+
+
+def getGCPCreds():
+
+    gcpCredsDefaultDict = {'TYPE': 'service_account',
+                           'PROJECT_ID': 'mwrite-a835',
+                           'PRIVATE_KEY_ID': None,
+                           'PRIVATE_KEY': None,
+                           'CLIENT_EMAIL': 'dbtogcphelper@mwrite-a835.iam.gserviceaccount.com',
+                           'CLIENT_ID': '101781732898615574177',
+                           'AUTH_URI': 'https://accounts.google.com/o/oauth2/auth',
+                           'TOKEN_URI': 'https://oauth2.googleapis.com/token',
+                           'AUTH_PROVIDER_X509_CERT_URL': 'https://www.googleapis.com/oauth2/v1/certs',
+                           'CLIENT_X509_CERT_URL': 'https://www.googleapis.com/robot/v1/metadata/x509/dbtogcphelper%40mwrite-a835.iam.gserviceaccount.com'}
+    gcpCredsDict = {}
+
+    allKeyPartsFound = True
+    for credPart in gcpCredsDefaultDict:
+        gcpCredsDict[credPart.lower()] = os.getenv(
+            'GCP_' + credPart, gcpCredsDefaultDict[credPart])
+
+        if not gcpCredsDict[credPart.lower()]:
+            logging.error(
+                f'Did not find .env variable for Service Account GCP key: {credPart}')
+            allKeyPartsFound = False
+
+    if not allKeyPartsFound:
+        sys.exit('Exiting.')
+
+    return gcpCredsDict
 
 
 def queryRetriever(queryName, queryModifier=False,
@@ -62,31 +99,25 @@ def makeDBConnection(dbParams):
     try:
         connectString = f'mysql+pymysql://{dbParams["USER"]}:{dbParams["PASSWORD"]}@{dbParams["HOST"]}:{dbParams["PORT"]}/{dbParams["NAME"]}'
         engine = sql.create_engine(connectString)
-        print('DB connection established.')
+        logging.info('DB connection established.')
         return engine
 
     except Exception as e:
-        print(f'Error Message: {e}')
-        print('Failed to establish DB connection.')
+        logging.error(f'Error Message: {e}')
+        logging.error('Failed to establish DB connection.')
         sys.exit('Exiting.')
 
 
-def makeGCPConnection(gcpJSON):
+def makeGCPConnection(gcpParams):
 
     try:
-
-        # I am not sure why this is how GCloud needs to accept a JSON String.
-        # Will look into alternatives.
-        with open('gcpAccessKey.json', 'w') as jsonFile:
-            jsonFile.write(gcpJSON)
-        client = storage.Client.from_service_account_json('gcpAccessKey.json')
-        os.remove('gcpAccessKey.json')
-        print('GCP connection established.')
+        client = storage.Client.from_service_account_info(gcpParams)
+        logging.info('GCP connection established.')
         return client
 
     except Exception as e:
-        print(f'Error Message: {e}')
-        print('Failed to establish GCP connection.')
+        logging.error(f'Error Message: {e}')
+        logging.error('Failed to establish GCP connection.')
         sys.exit('Exiting.')
 
 
@@ -96,13 +127,13 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine):
         courseQuery = queryRetriever(courseQueryTemplate, monthsModifier)
         with engine.connect() as connection:
             courseDF = pd.read_sql(courseQuery, connection)
-        print('Courses retrieved...')
+        logging.info('Courses retrieved...')
 
         return courseDF
 
     except Exception as e:
-        print(f'Error Message: {e}')
-        print('Failed to retrieve Course List.')
+        logging.error(f'Error Message: {e}')
+        logging.error('Failed to retrieve Course List.')
         sys.exit('Exiting.')
 
 
@@ -113,11 +144,11 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseModifier, engine):
         retrieveQuery = queryRetriever(retrieveQueryTemplate, courseIDString)
         with engine.connect() as connection:
             retrieveDF = pd.read_sql(retrieveQuery, connection)
-        print('Course Data retrieved...')
+        logging.info('Course Data retrieved...')
 
     except Exception as e:
-        print(f'Error Message: {e}')
-        print('Failed to retrieve Course Data.')
+        logging.error(f'Error Message: {e}')
+        logging.error('Failed to retrieve Course Data.')
         sys.exit('Exiting.')
 
     return retrieveDF
@@ -132,23 +163,25 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
         outputFilename = f'{courseID} - {courseName}.tsv'
 
         try:
-            print(f'Slicing and saving: {outputFilename}')
+            logging.info(f'Slicing: {outputFilename}')
             saveDF = retrieveDF[retrieveDF['CourseID'] == courseID]
             saveDF.to_csv(outputFilename, sep="\t", quoting=3,
                           quotechar="", escapechar="\\")
 
         except Exception as e:
-            print(f'Error Message: {e}')
-            print(f'Failed to save Course Data for {outputFilename}.')
+            logging.error(f'Error Message: {e}')
+            logging.error(f'Failed to save Course Data for {outputFilename}.')
             continue
 
         try:
+            logging.info(f'Saving to GCP: {outputFilename}')
             blob = bucket.blob(outputFilename)
             blob.upload_from_filename(outputFilename)
             os.remove(outputFilename)
         except Exception as e:
-            print(f'Error Message: {e}')
-            print(f'Failed to upload Course Data for {outputFilename} to GCP.')
+            logging.error(f'Error Message: {e}')
+            logging.error(
+                f'Failed to upload Course Data for {outputFilename} to GCP.')
             continue
 
     return True
@@ -158,13 +191,13 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
 # --------------------------------------------------------------------------
 
 dbParams = getDBCreds()
-gcpJSON = os.getenv('GCP_KEY')
+gcpParams = getGCPCreds()
 
 
 # ESTABLISH CONNECTIONS
 # --------------------------------------------------------------------------
 sqlEngine = makeDBConnection(dbParams)
-gcpClient = makeGCPConnection(gcpJSON)
+gcpClient = makeGCPConnection(gcpParams)
 # sys.stdout.flush()
 
 # RETRIEVE COURSE INFO
@@ -184,4 +217,4 @@ retrieveQueryDF = retrieveQueryMaker(
 sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
 # sys.stdout.flush()
 
-print('All steps complete.')
+logging.info('All steps complete.')
