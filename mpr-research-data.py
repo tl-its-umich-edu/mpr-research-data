@@ -1,18 +1,17 @@
-# LIBRARIES TO IMPORT
-# --------------------------------------------------------------------------
+import json
+import logging
+import os
+import sys
+
 import pandas as pd
 import sqlalchemy as sql
 from google.cloud import storage
-import os
-import sys
-import logging
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] - %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S%z",
     level=logging.INFO
 )
-
 
 # SETUP CONFIG VARIABLES
 # --------------------------------------------------------------------------
@@ -53,33 +52,8 @@ def getDBCreds():
     return dbCredsDict
 
 
-def getGCPCreds():
-
-    gcpCredsDefaultDict = {'TYPE': 'service_account',
-                           'PROJECT_ID': 'mwrite-a835',
-                           'PRIVATE_KEY_ID': None,
-                           'PRIVATE_KEY': None,
-                           'CLIENT_EMAIL': 'dbtogcphelper@mwrite-a835.iam.gserviceaccount.com',
-                           'CLIENT_ID': '101781732898615574177',
-                           'AUTH_URI': 'https://accounts.google.com/o/oauth2/auth',
-                           'TOKEN_URI': 'https://oauth2.googleapis.com/token',
-                           'AUTH_PROVIDER_X509_CERT_URL': 'https://www.googleapis.com/oauth2/v1/certs',
-                           'CLIENT_X509_CERT_URL': 'https://www.googleapis.com/robot/v1/metadata/x509/dbtogcphelper%40mwrite-a835.iam.gserviceaccount.com'}
-    gcpCredsDict = {}
-
-    allKeyPartsFound = True
-    for credPart in gcpCredsDefaultDict:
-        gcpCredsDict[credPart.lower()] = os.getenv(
-            'GCP_' + credPart, gcpCredsDefaultDict[credPart])
-
-        if not gcpCredsDict[credPart.lower()]:
-            logging.error(
-                f'Did not find .env variable for Service Account GCP key: {credPart}')
-            allKeyPartsFound = False
-
-    if not allKeyPartsFound:
-        sys.exit('Exiting.')
-
+def getGCPCreds() -> dict:
+    gcpCredsDict = json.loads(os.getenv('GCP_KEY'))
     return gcpCredsDict
 
 
