@@ -9,11 +9,10 @@
 
 2. Get GCP credentials for accessing bucket:
    Use Service Account 'dbToGCPHelper' for accessing and pushing to GCP.
-   > Using GCP Web UI,
-   > Go to "IAM & Admin" > "Service Accounts"
-   > Use Service Account with name "dbTOGCPHelper"
-   > Under "Actions", generate a new key-pair as a JSON file.
-Note: If making a new Service Account, please make sure the Service Account has appropiate permissions to be able to access and modify the GCP bucket.
+   > Using GCP Web UI, go to "IAM & Admin" > "Service Accounts" (https://console.cloud.google.com/iam-admin/serviceaccounts)  
+   > Use the service account named "dbTOGCPHelper"  
+   > Under "Actions", generate a new key-pair as a JSON file.  
+   > Note: If making a new Service Account, please make sure the Service Account has appropriate permissions to be able to access and modify the GCP bucket.
 
 3. Use the `.env.sample` in the config folder to create an `.env` file in the root of the directory. 
    > Specify the settings for DB key using values from the `database-research_ro.json` file.
