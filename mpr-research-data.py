@@ -161,34 +161,35 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
     return True
 
 
-# RETRIEVE KEYS
-# --------------------------------------------------------------------------
+def main():
+  # RETRIEVE KEYS
+    # --------------------------------------------------------------------------
 
-dbParams = getDBCreds()
-gcpParams = getGCPCreds()
+    dbParams = getDBCreds()
+    gcpParams = getGCPCreds()
 
 
-# ESTABLISH CONNECTIONS
-# --------------------------------------------------------------------------
-sqlEngine = makeDBConnection(dbParams)
-gcpClient = makeGCPConnection(gcpParams)
-# sys.stdout.flush()
+    # ESTABLISH CONNECTIONS
+    # --------------------------------------------------------------------------
+    sqlEngine = makeDBConnection(dbParams)
+    gcpClient = makeGCPConnection(gcpParams)
 
-# RETRIEVE COURSE INFO
-# --------------------------------------------------------------------------
-courseQueryDF = courseQueryMaker(
-    queryTemplateDict['course'], numberOfMonths, sqlEngine)
-# sys.stdout.flush()
+    # RETRIEVE COURSE INFO
+    # --------------------------------------------------------------------------
+    courseQueryDF = courseQueryMaker(
+        queryTemplateDict['course'], numberOfMonths, sqlEngine)
 
-# RETRIEVE COURSE DATA
-# --------------------------------------------------------------------------
-retrieveQueryDF = retrieveQueryMaker(
-    queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
-# sys.stdout.flush()
+    # RETRIEVE COURSE DATA
+    # --------------------------------------------------------------------------
+    retrieveQueryDF = retrieveQueryMaker(
+        queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
 
-# SEND TO GCP BUCKET
-# --------------------------------------------------------------------------
-sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
-# sys.stdout.flush()
+    # SEND TO GCP BUCKET
+    # --------------------------------------------------------------------------
+    sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
 
-logging.info('All steps complete.')
+    logging.info('All steps complete.')
+
+
+if '__main__' == __name__:
+    main()
