@@ -17,7 +17,7 @@ Note: If making a new Service Account, please make sure the Service Account has 
 
 3. Use the `.env.sample` in the config folder to create an `.env` file in the root of the directory. 
    > Specify the settings for DB key using values from the `database-research_ro.json` file.
-   > Paste the GCP JSON key into the `.env` file in `GCP_KEY`.
+   > Specify the settings for GCP service account key using values from the downloaded GCP key file.
 Note: You need to have these keys, there are no default values.
 
 4. Adjust variables in the `.env` file before running if not applying defaults:
