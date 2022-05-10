@@ -10,3 +10,4 @@ WHERE
   AND ca.due_date_utc BETWEEN NOW() - INTERVAL {} MONTH AND NOW()
 ORDER BY
   ca.due_date_utc DESC
+  
