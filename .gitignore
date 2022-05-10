@@ -1,2 +1,4 @@
 .ipynb_checkpoints
-database-research_ro.json
+.env
+gcpAccessKey.json
+datavase-research-ro.json
