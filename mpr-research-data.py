@@ -8,66 +8,14 @@ import sqlalchemy as sql
 from google.cloud import storage
 
 logging.basicConfig(
-    format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] - %(message)s",
+    format="%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S%z",
     level=logging.INFO
 )
 
-# SETUP CONFIG VARIABLES
-# --------------------------------------------------------------------------
-targetBucketName = os.getenv('GCLOUD_BUCKET', 'mpr-research-data-uploads')
-
-numberOfMonths = os.getenv('NUMBER_OF_MONTHS', 4)
-
-defaultQueryFolder = os.getenv('QUERY_FOLDER', 'queries')
-queryTemplateDict = {'course': os.getenv('COURSE_QEURY', 'courseQuery.sql'),
-                     'retrieve': os.getenv('RETRIEVE_QUERY', 'retrieveQuery.sql')}
-
 
 # FUNCTIONS
 # --------------------------------------------------------------------------
-
-def getDBCreds():
-
-    dbCredsDefaultDict = {'NAME': None,
-                          'USER': None,
-                          'PASSWORD': None,
-                          'HOST': None,
-                          'PORT': 3306}
-    dbCredsDict = {}
-
-    allKeyPartsFound = True
-    for credPart in dbCredsDefaultDict:
-        dbCredsDict[credPart] = os.getenv(
-            'DB_' + credPart, dbCredsDefaultDict[credPart])
-
-        if not dbCredsDict[credPart]:
-            logging.error(
-                f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}')
-            allKeyPartsFound = False
-
-    if not allKeyPartsFound:
-        sys.exit('Exiting.')
-
-    return dbCredsDict
-
-
-def getGCPCreds() -> dict:
-    gcpCredsDict = json.loads(os.getenv('GCP_KEY'))
-    return gcpCredsDict
-
-
-def queryRetriever(queryName, queryModifier=False,
-                   queryFolder=defaultQueryFolder):
-    with open(os.path.join(queryFolder, queryName)) as queryFile:
-        queryLines = ''.join(queryFile.readlines())
-
-    if queryModifier:
-        queryLines = queryLines.format(queryModifier)
-
-    return queryLines
-
-
 def makeDBConnection(dbParams):
 
     try:
@@ -95,10 +43,22 @@ def makeGCPConnection(gcpParams):
         sys.exit('Exiting.')
 
 
-def courseQueryMaker(courseQueryTemplate, monthsModifier, engine):
+def queryRetriever(queryName, queryFolder, queryModifier=False,
+                   ):
+    with open(os.path.join(queryFolder, queryName)) as queryFile:
+        queryLines = ''.join(queryFile.readlines())
+
+    if queryModifier:
+        queryLines = queryLines.format(queryModifier)
+
+    return queryLines
+
+
+def courseQueryMaker(courseQueryTemplate, monthsModifier, engine, defaultQueryFolder):
 
     try:
-        courseQuery = queryRetriever(courseQueryTemplate, monthsModifier)
+        courseQuery = queryRetriever(
+            courseQueryTemplate, defaultQueryFolder, monthsModifier)
         with engine.connect() as connection:
             courseDF = pd.read_sql(courseQuery, connection)
         logging.info('Courses retrieved...')
@@ -111,11 +71,12 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine):
         sys.exit('Exiting.')
 
 
-def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine):
+def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFolder):
 
     try:
         courseIDString = ','.join(map(str, courseIDs))
-        retrieveQuery = queryRetriever(retrieveQueryTemplate, courseIDString)
+        retrieveQuery = queryRetriever(
+            retrieveQueryTemplate, defaultQueryFolder, courseIDString)
         with engine.connect() as connection:
             retrieveDF = pd.read_sql(retrieveQuery, connection)
         logging.info('Course Data retrieved...')
@@ -128,7 +89,7 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine):
     return retrieveDF
 
 
-def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucketName):
+def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName):
 
     bucket = client.bucket(targetBucketName)
 
@@ -161,32 +122,150 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
     return True
 
 
+class Config:
+    def __init__(self):
+        self.targetBucketName: str = 'mpr-research-data-uploads'
+        self.numberOfMonths: int = 4
+        self.defaultQueryFolder: str = 'queries'
+        self.queryTemplateDict: str = {'course': 'courseQuery.sql',
+                                       'retrieve': 'retrieveQuery.sql'}
+        self.dbParams: str = None
+        self.gcpParams: str = None
+
+    def set(self, name, value):
+        if name in self.__dict__:
+            self.name = value
+        else:
+            raise NameError('Name not accepted in set() method')
+
+    def setAndVerifySQLFile(self, queryType):
+        try:
+            self.queryTemplateDict[queryType] = str(
+                os.getenv(f'{queryType.upper()}_QUERY', self.queryTemplateDict[queryType]))
+            if not os.path.isfile(os.path.join(self.defaultQueryFolder, self.queryTemplateDict[queryType])):
+                logging.error(
+                    f'SQL Query file for {queryType} not found in query directory {self.defaultQueryFolder}.')
+                return False
+            return True
+        except Exception as e:
+            logging.error(f'Error Message: {e}')
+            logging.error(
+                f'Invalid parameter passed for query type: {queryType}.')
+            return False
+
+    def setAndVerifyDBCreds(self):
+
+        dbCredsDefaultDict = {'NAME': None,
+                              'USER': None,
+                              'PASSWORD': None,
+                              'HOST': None,
+                              'PORT': 3306}
+        self.dbParams = {}
+
+        allKeyPartsFound = True
+        for credPart in dbCredsDefaultDict:
+            try:
+                self.dbParams[credPart] = str(os.getenv(
+                    'DB_' + credPart, dbCredsDefaultDict[credPart]))
+            except Exception as e:
+                logging.error(f'Error Message: {e}')
+                logging.error(
+                    f'Invalid parameter passed for DB_{credPart}.')
+                allKeyPartsFound = False
+
+            if not self.dbParams[credPart]:
+                logging.error(
+                    f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}.')
+                allKeyPartsFound = False
+
+        if not allKeyPartsFound:
+            return False
+
+    def setAndVerifyGCPCreds(self):
+        try:
+            self.gcpParams = json.loads(str(os.getenv('GCP_KEY')))
+            return True
+        except Exception as e:
+            logging.error(f'Error Message: {e}')
+            logging.error(
+                f'Invalid parameter passed for GCloud Service JSON Key.')
+            return False
+
+    def setFromEnv(self):
+
+        envImportSuccess = True
+        try:
+            self.targetBucketName = str(
+                os.getenv('GCLOUD_BUCKET', self.targetBucketName))
+        except Exception as e:
+            logging.error(f'Error Message: {e}')
+            logging.error(
+                f'Invalid parameter passed for GCloud bucket name.')
+            envImportSuccess = False
+
+        try:
+            self.numberOfMonths = str(
+                os.getenv('NUMBER_OF_MONTHS', self.numberOfMonths))
+            if not self.numberOfMonths.isnumeric():
+                logging.error(
+                    f'Non-integer passed for number of months.')
+                envImportSuccess = False
+        except Exception as e:
+            logging.error(f'Error Message: {e}')
+            logging.error(
+                f'Invalid parameter passed for Number of Months.')
+            envImportSuccess = False
+
+        try:
+            self.defaultQueryFolder = str(
+                os.getenv('QUERY_FOLDER', self.defaultQueryFolder))
+            if not os.path.isdir(self.defaultQueryFolder):
+                logging.error(
+                    f'Default Query folder not found in repo directory.')
+                envImportSuccess = False
+            else:
+                for queryType in self.queryTemplateDict:
+                    envImportSuccess = self.setAndVerifySQLFile(queryType)
+        except Exception as e:
+            logging.error(f'Error Message: {e}')
+            logging.error(
+                f'Invalid parameter passed for default Query folder.')
+            envImportSuccess = False
+
+        envImportSuccess = self.setAndVerifyDBCreds()
+        envImportSuccess = self.setAndVerifyGCPCreds()
+
+        if not envImportSuccess:
+            sys.exit('Exiting.')
+        else:
+            logging.info('All config variables set up successfully.')
+
+
 def main():
-  # RETRIEVE KEYS
+    # GET CONFIG VARIABLES
     # --------------------------------------------------------------------------
-
-    dbParams = getDBCreds()
-    gcpParams = getGCPCreds()
-
+    config = Config()
+    config.setFromEnv()
 
     # ESTABLISH CONNECTIONS
     # --------------------------------------------------------------------------
-    sqlEngine = makeDBConnection(dbParams)
-    gcpClient = makeGCPConnection(gcpParams)
+    sqlEngine = makeDBConnection(config.dbParams)
+    gcpClient = makeGCPConnection(config.gcpParams)
 
     # RETRIEVE COURSE INFO
     # --------------------------------------------------------------------------
     courseQueryDF = courseQueryMaker(
-        queryTemplateDict['course'], numberOfMonths, sqlEngine)
+        config.queryTemplateDict['course'], config.numberOfMonths, sqlEngine, config.defaultQueryFolder)
 
     # RETRIEVE COURSE DATA
     # --------------------------------------------------------------------------
     retrieveQueryDF = retrieveQueryMaker(
-        queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
+        config.queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine, config.defaultQueryFolder)
 
     # SEND TO GCP BUCKET
     # --------------------------------------------------------------------------
-    sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
+    sliceAndPushToGCP(courseQueryDF, retrieveQueryDF,
+                      gcpClient, config.targetBucketName)
 
     logging.info('All steps complete.')
 
