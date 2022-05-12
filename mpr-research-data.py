@@ -142,6 +142,9 @@ class Config:
         try:
             self.queryTemplateDict[queryType] = str(
                 os.getenv(f'{queryType.upper()}_QUERY', self.queryTemplateDict[queryType]))
+
+            if self.queryTemplateDict[queryType].lower().endswith('.sql'):
+                logging.info(f'Loading in SQL file - {self.queryTemplateDict[queryType]}')
             if not os.path.isfile(os.path.join(self.defaultQueryFolder, self.queryTemplateDict[queryType])):
                 logging.error(
                     f'SQL Query file for {queryType} not found in query directory {self.defaultQueryFolder}.')
