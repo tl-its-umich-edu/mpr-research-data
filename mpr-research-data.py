@@ -7,15 +7,36 @@ import pandas as pd
 import sqlalchemy as sql
 from google.cloud import storage
 
-logging.basicConfig(
-    format="%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S%z",
-    level=logging.INFO
-)
-
 
 # FUNCTIONS
 # --------------------------------------------------------------------------
+
+def setUpLogger():
+
+    logWarning = False
+    raiseLogTypeError = None
+
+    try:
+        logLevel = str(os.environ.get('LOG_LEVEL', 'DEBUG')).upper()
+    except TypeError as e:
+        logWarning = True
+        raiseLogTypeError = e
+    
+    if logLevel not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL', 'CRITCAL', 'EXCEPTION']:
+        logWarning = True
+
+    if logWarning:
+        logLevel = 'INFO'
+
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%dT%H:%M:%S%z',
+        level=logLevel
+    )
+
+    return logWarning, raiseLogTypeError
+
+
 def makeDBConnection(dbParams):
 
     try:
@@ -144,13 +165,14 @@ class Config:
                 os.getenv(f'{queryType.upper()}_QUERY', self.queryTemplateDict[queryType]))
 
             if self.queryTemplateDict[queryType].lower().endswith('.sql'):
-                logging.info(f'Loading in SQL file - {self.queryTemplateDict[queryType]}')
+                logging.info(
+                    f'Loading in SQL file - {self.queryTemplateDict[queryType]}')
             if not os.path.isfile(os.path.join(self.defaultQueryFolder, self.queryTemplateDict[queryType])):
                 logging.error(
                     f'SQL Query file for {queryType} not found in query directory {self.defaultQueryFolder}.')
                 return False
             return True
-        except Exception as e:
+        except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Invalid parameter passed for query type: {queryType}.')
@@ -170,7 +192,7 @@ class Config:
             try:
                 self.dbParams[credPart] = str(os.getenv(
                     'DB_' + credPart, dbCredsDefaultDict[credPart]))
-            except Exception as e:
+            except TypeError as e:
                 logging.error(f'Error Message: {e}')
                 logging.error(
                     f'Invalid parameter passed for DB_{credPart}.')
@@ -178,7 +200,7 @@ class Config:
 
             if not self.dbParams[credPart]:
                 logging.error(
-                    f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}.')
+                    f'Did not find configuration variable for M-Write Peer Review production DB key: {credPart}.')
                 allKeyPartsFound = False
 
         if not allKeyPartsFound:
@@ -188,7 +210,7 @@ class Config:
         try:
             self.gcpParams = json.loads(str(os.getenv('GCP_KEY')))
             return True
-        except Exception as e:
+        except json.JSONDecodeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Invalid parameter passed for GCloud Service JSON Key.')
@@ -200,7 +222,7 @@ class Config:
         try:
             self.targetBucketName = str(
                 os.getenv('GCLOUD_BUCKET', self.targetBucketName))
-        except Exception as e:
+        except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Invalid parameter passed for GCloud bucket name.')
@@ -213,7 +235,7 @@ class Config:
                 logging.error(
                     f'Non-integer passed for number of months.')
                 envImportSuccess = False
-        except Exception as e:
+        except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Invalid parameter passed for Number of Months.')
@@ -229,7 +251,7 @@ class Config:
             else:
                 for queryType in self.queryTemplateDict:
                     envImportSuccess = self.setAndVerifySQLFile(queryType)
-        except Exception as e:
+        except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Invalid parameter passed for default Query folder.')
@@ -245,6 +267,16 @@ class Config:
 
 
 def main():
+
+    # SETUP LOGGER
+    # --------------------------------------------------------------------------
+    logWarning, raiseLogTypeError = setUpLogger()
+    if logWarning and not raiseLogTypeError:
+        logging.warning('Invalid configruation paramter for log level provided. Defaulting to INFO level.')
+    if logWarning and raiseLogTypeError:
+        logging.warning(f'Error Message: {raiseLogTypeError}')
+        logging.warning('Incorrect type for configruation paramter for log level provided. Defaulting to INFO level.')
+
     # GET CONFIG VARIABLES
     # --------------------------------------------------------------------------
     config = Config()
