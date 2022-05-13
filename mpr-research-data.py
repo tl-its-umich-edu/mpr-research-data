@@ -7,35 +7,15 @@ import pandas as pd
 import sqlalchemy as sql
 from google.cloud import storage
 
+logging.basicConfig(
+    format='%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z',
+    level='INFO'
+)
+
 
 # FUNCTIONS
 # --------------------------------------------------------------------------
-
-def setUpLogger():
-
-    logWarning = False
-    raiseLogTypeError = None
-
-    try:
-        logLevel = str(os.environ.get('LOG_LEVEL', 'DEBUG')).upper()
-    except TypeError as e:
-        logWarning = True
-        raiseLogTypeError = e
-    
-    if logLevel not in ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL', 'CRITCAL', 'EXCEPTION']:
-        logWarning = True
-
-    if logWarning:
-        logLevel = 'INFO'
-
-    logging.basicConfig(
-        format='%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s',
-        datefmt='%Y-%m-%dT%H:%M:%S%z',
-        level=logLevel
-    )
-
-    return logWarning, raiseLogTypeError
-
 
 def makeDBConnection(dbParams):
 
@@ -79,7 +59,7 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine, defaultQueryFo
 
     try:
         courseQuery = queryRetriever(
-            courseQueryTemplate, defaultQueryFolder, monthsModifier)
+            courseQueryTemplate, defaultQueryFolder, str(monthsModifier))
         with engine.connect() as connection:
             courseDF = pd.read_sql(courseQuery, connection)
         logging.info('Courses retrieved...')
@@ -113,6 +93,7 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
 def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName):
 
     bucket = client.bucket(targetBucketName)
+    allSliced, allSaved = True, True
 
     for _, row in courseDF.iterrows():
         (courseID, courseName) = row
@@ -126,7 +107,9 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName):
 
         except Exception as e:
             logging.error(f'Error Message: {e}')
-            logging.error(f'Failed to save Course Data for {outputFilename}.')
+            logging.error(
+                f'Failed to save Course Data for {outputFilename}.')
+            allSliced = False
             continue
 
         try:
@@ -134,24 +117,27 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName):
             blob = bucket.blob(outputFilename)
             blob.upload_from_filename(outputFilename)
             os.remove(outputFilename)
+
         except Exception as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Failed to upload Course Data for {outputFilename} to GCP.')
+            allSaved = False
             continue
 
-    return True
+    return allSliced, allSaved
 
 
 class Config:
     def __init__(self):
+        self.logLevel: str = 'INFO'
         self.targetBucketName: str = 'mpr-research-data-uploads'
         self.numberOfMonths: int = 4
         self.defaultQueryFolder: str = 'queries'
         self.queryTemplateDict: str = {'course': 'courseQuery.sql',
                                        'retrieve': 'retrieveQuery.sql'}
-        self.dbParams: str = None
-        self.gcpParams: str = None
+        self.dbParams: dict = {}
+        self.gcpParams: dict = {}
 
     def set(self, name, value):
         if name in self.__dict__:
@@ -160,10 +146,12 @@ class Config:
             raise NameError('Name not accepted in set() method')
 
     def setAndVerifySQLFile(self, queryType):
+
         try:
             self.queryTemplateDict[queryType] = str(
                 os.getenv(f'{queryType.upper()}_QUERY', self.queryTemplateDict[queryType]))
 
+            # I would like to expand the checks here to allow for custom queries from a file, or as a string in the config file.
             if self.queryTemplateDict[queryType].lower().endswith('.sql'):
                 logging.info(
                     f'Loading in SQL file - {self.queryTemplateDict[queryType]}')
@@ -172,10 +160,11 @@ class Config:
                     f'SQL Query file for {queryType} not found in query directory {self.defaultQueryFolder}.')
                 return False
             return True
+
         except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
-                f'Invalid parameter passed for query type: {queryType}.')
+                f'Invalid type (expected str) passed for query type: {queryType}.')
             return False
 
     def setAndVerifyDBCreds(self):
@@ -189,22 +178,33 @@ class Config:
 
         allKeyPartsFound = True
         for credPart in dbCredsDefaultDict:
-            try:
-                self.dbParams[credPart] = str(os.getenv(
-                    'DB_' + credPart, dbCredsDefaultDict[credPart]))
-            except TypeError as e:
-                logging.error(f'Error Message: {e}')
+
+            if credPart == 'PORT':
+                try:
+                    self.dbParams[credPart] = int(os.getenv(
+                        'DB_' + credPart, dbCredsDefaultDict[credPart]))
+                except ValueError as e:
+                    logging.error(f'Error Message: {e}')
+                    logging.error(
+                        f'Invalid type (expected int) passed for DB_{credPart}.')
+                    allKeyPartsFound = False
+
+            else:
+                try:
+                    self.dbParams[credPart] = str(os.getenv(
+                        'DB_' + credPart, dbCredsDefaultDict[credPart]))
+                except TypeError as e:
+                    logging.error(f'Error Message: {e}')
+                    logging.error(
+                        f'Invalid type (expected str) passed for DB_{credPart}.')
+                    allKeyPartsFound = False
+
+            if not self.dbParams.get(credPart, False):
                 logging.error(
-                    f'Invalid parameter passed for DB_{credPart}.')
+                    f'Did not find configuration parameter for M-Write Peer Review production DB key: {credPart}.')
                 allKeyPartsFound = False
 
-            if not self.dbParams[credPart]:
-                logging.error(
-                    f'Did not find configuration variable for M-Write Peer Review production DB key: {credPart}.')
-                allKeyPartsFound = False
-
-        if not allKeyPartsFound:
-            return False
+        return allKeyPartsFound
 
     def setAndVerifyGCPCreds(self):
         try:
@@ -213,10 +213,24 @@ class Config:
         except json.JSONDecodeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
-                f'Invalid parameter passed for GCloud Service JSON Key.')
+                f'Invalid JSON format passed for GCloud Service JSON Key.')
             return False
 
     def setFromEnv(self):
+
+        try:
+            self.logLevel = str(os.environ.get(
+                'LOG_LEVEL', self.logLevel)).upper()
+        except TypeError as e:
+            logging.warning(f'Error Message: {e}')
+            logging.warning(
+                'Incorrect type for configuration parameter for log level provided. Defaulting to INFO level.')
+        try:
+            logging.getLogger().setLevel(logging.getLevelName(self.logLevel))
+        except ValueError as e:
+            logging.warning(f'Error Message: {e}')
+            logging.warning(
+                'Invalid configuration parameter for log level provided. Defaulting to INFO level.')
 
         envImportSuccess = True
         try:
@@ -225,20 +239,22 @@ class Config:
         except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
-                f'Invalid parameter passed for GCloud bucket name.')
+                f'Invalid type (expected str) passed for GCloud bucket name.')
             envImportSuccess = False
 
         try:
-            self.numberOfMonths = str(
+            self.numberOfMonths = int(
                 os.getenv('NUMBER_OF_MONTHS', self.numberOfMonths))
-            if not self.numberOfMonths.isnumeric():
+
+            if self.numberOfMonths < 1:
                 logging.error(
-                    f'Non-integer passed for number of months.')
+                    f'Config parameter NUMBER_OF_MONTHS must be >= 1.')
                 envImportSuccess = False
-        except TypeError as e:
+
+        except ValueError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
-                f'Invalid parameter passed for Number of Months.')
+                f'Non-integer passed for config parameter NUMBER_OF_MONTHS.')
             envImportSuccess = False
 
         try:
@@ -246,36 +262,31 @@ class Config:
                 os.getenv('QUERY_FOLDER', self.defaultQueryFolder))
             if not os.path.isdir(self.defaultQueryFolder):
                 logging.error(
-                    f'Default Query folder not found in repo directory.')
+                    f'Default Query folder set by QUERY_FOLDER not found in repo directory.')
                 envImportSuccess = False
             else:
                 for queryType in self.queryTemplateDict:
-                    envImportSuccess = self.setAndVerifySQLFile(queryType)
+                    if not self.setAndVerifySQLFile(queryType):
+                        envImportSuccess = False
         except TypeError as e:
             logging.error(f'Error Message: {e}')
             logging.error(
-                f'Invalid parameter passed for default Query folder.')
+                f'Invalid type (expected str) passed for configuration parameter QUERY_FOLDER.')
             envImportSuccess = False
 
-        envImportSuccess = self.setAndVerifyDBCreds()
-        envImportSuccess = self.setAndVerifyGCPCreds()
+        if not self.setAndVerifyDBCreds():
+            envImportSuccess = False
+
+        if not self.setAndVerifyGCPCreds():
+            envImportSuccess = False
 
         if not envImportSuccess:
-            sys.exit('Exiting.')
+            sys.exit('Exiting due to configuration parameter import problems.')
         else:
-            logging.info('All config variables set up successfully.')
+            logging.info('All configuration parameters set up successfully.')
 
 
 def main():
-
-    # SETUP LOGGER
-    # --------------------------------------------------------------------------
-    logWarning, raiseLogTypeError = setUpLogger()
-    if logWarning and not raiseLogTypeError:
-        logging.warning('Invalid configruation paramter for log level provided. Defaulting to INFO level.')
-    if logWarning and raiseLogTypeError:
-        logging.warning(f'Error Message: {raiseLogTypeError}')
-        logging.warning('Incorrect type for configruation paramter for log level provided. Defaulting to INFO level.')
 
     # GET CONFIG VARIABLES
     # --------------------------------------------------------------------------
@@ -292,6 +303,10 @@ def main():
     courseQueryDF = courseQueryMaker(
         config.queryTemplateDict['course'], config.numberOfMonths, sqlEngine, config.defaultQueryFolder)
 
+    if len(courseQueryDF) == 0:
+        logging.info('No courses to be retrieved.')
+        sys.exit('Exiting due to no courses being found in current configuration.')
+
     # RETRIEVE COURSE DATA
     # --------------------------------------------------------------------------
     retrieveQueryDF = retrieveQueryMaker(
@@ -299,10 +314,20 @@ def main():
 
     # SEND TO GCP BUCKET
     # --------------------------------------------------------------------------
-    sliceAndPushToGCP(courseQueryDF, retrieveQueryDF,
-                      gcpClient, config.targetBucketName)
+    allSliced, allSaved = sliceAndPushToGCP(courseQueryDF, retrieveQueryDF,
+                                            gcpClient, config.targetBucketName)
 
-    logging.info('All steps complete.')
+    # This is because even if one course fails to save or upload
+    # The code can still attempt to keep running for the other courses.
+    # The warnings here adds a final message that there was an error
+    # at some point in slicing and saving the data to GCP
+
+    if not allSliced:
+        logging.warning(
+            'Not all course data could be sliced correctly.')
+    if not allSaved:
+        logging.warning(
+            'Not all course data could be saved to GCP correctly.')
 
 
 if '__main__' == __name__:
