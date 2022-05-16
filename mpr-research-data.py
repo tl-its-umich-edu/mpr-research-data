@@ -28,7 +28,7 @@ def makeDBConnection(dbParams):
     except Exception as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to establish DB connection.')
-        sys.exit('Exiting.')
+        sys.exit('Exiting due to failed DB connection.')
 
 
 def makeGCPConnection(gcpParams):
@@ -41,7 +41,7 @@ def makeGCPConnection(gcpParams):
     except Exception as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to establish GCP connection.')
-        sys.exit('Exiting.')
+        sys.exit('Exiting due to failed GCP connection.')
 
 
 def queryRetriever(queryName, queryFolder, queryModifier=False,
@@ -69,7 +69,7 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine, defaultQueryFo
     except Exception as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to retrieve Course List.')
-        sys.exit('Exiting.')
+        sys.exit('Exiting due to failure in Course List retrieval.')
 
 
 def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFolder):
@@ -85,7 +85,7 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
     except Exception as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to retrieve Course Data.')
-        sys.exit('Exiting.')
+        sys.exit('Exiting due to failure in Course Data retrieval.')
 
     return retrieveDF
 
@@ -136,7 +136,11 @@ class Config:
         self.defaultQueryFolder: str = 'queries'
         self.queryTemplateDict: str = {'course': 'courseQuery.sql',
                                        'retrieve': 'retrieveQuery.sql'}
-        self.dbParams: dict = {}
+        self.dbParams: dict = {'NAME': None,
+                               'USER': None,
+                               'PASSWORD': None,
+                               'HOST': None,
+                               'PORT': 3306}
         self.gcpParams: dict = {}
 
     def set(self, name, value):
@@ -145,140 +149,72 @@ class Config:
         else:
             raise NameError('Name not accepted in set() method')
 
-    def setAndVerifySQLFile(self, queryType):
-
-        try:
-            self.queryTemplateDict[queryType] = str(
-                os.getenv(f'{queryType.upper()}_QUERY', self.queryTemplateDict[queryType]))
-
-            # I would like to expand the checks here to allow for custom queries from a file, or as a string in the config file.
-            if self.queryTemplateDict[queryType].lower().endswith('.sql'):
-                logging.info(
-                    f'Loading in SQL file - {self.queryTemplateDict[queryType]}')
-            if not os.path.isfile(os.path.join(self.defaultQueryFolder, self.queryTemplateDict[queryType])):
-                logging.error(
-                    f'SQL Query file for {queryType} not found in query directory {self.defaultQueryFolder}.')
-                return False
-            return True
-
-        except TypeError as e:
-            logging.error(f'Error Message: {e}')
-            logging.error(
-                f'Invalid type (expected str) passed for query type: {queryType}.')
-            return False
-
-    def setAndVerifyDBCreds(self):
-
-        dbCredsDefaultDict = {'NAME': None,
-                              'USER': None,
-                              'PASSWORD': None,
-                              'HOST': None,
-                              'PORT': 3306}
-        self.dbParams = {}
-
-        allKeyPartsFound = True
-        for credPart in dbCredsDefaultDict:
-
-            if credPart == 'PORT':
-                try:
-                    self.dbParams[credPart] = int(os.getenv(
-                        'DB_' + credPart, dbCredsDefaultDict[credPart]))
-                except ValueError as e:
-                    logging.error(f'Error Message: {e}')
-                    logging.error(
-                        f'Invalid type (expected int) passed for DB_{credPart}.')
-                    allKeyPartsFound = False
-
-            else:
-                try:
-                    self.dbParams[credPart] = str(os.getenv(
-                        'DB_' + credPart, dbCredsDefaultDict[credPart]))
-                except TypeError as e:
-                    logging.error(f'Error Message: {e}')
-                    logging.error(
-                        f'Invalid type (expected str) passed for DB_{credPart}.')
-                    allKeyPartsFound = False
-
-            if not self.dbParams.get(credPart, False):
-                logging.error(
-                    f'Did not find configuration parameter for M-Write Peer Review production DB key: {credPart}.')
-                allKeyPartsFound = False
-
-        return allKeyPartsFound
-
-    def setAndVerifyGCPCreds(self):
-        try:
-            self.gcpParams = json.loads(str(os.getenv('GCP_KEY')))
-            return True
-        except json.JSONDecodeError as e:
-            logging.error(f'Error Message: {e}')
-            logging.error(
-                f'Invalid JSON format passed for GCloud Service JSON Key.')
-            return False
+    def configFetch(self, name, default=None, casting=None, validation=None, valErrorMsg=None):
+        value = os.getenv(name, default)
+        if (casting is not None):
+            try:
+                value = casting(value)
+            except:
+                errorMsg = f'Casting error for config item "{name}" value "{value}".'
+                logging.error(errorMsg)
+                return None
+                #raise TypeError(errorMsg)
+        if (validation is not None and not validation(value)):
+            errorMsg = f'Validation error for config item "{name}" value "{value}".'
+            logging.error(errorMsg)
+            return None
+            #raise ValueError(errorMsg)
+        return value
 
     def setFromEnv(self):
 
         try:
-            self.logLevel = str(os.environ.get(
-                'LOG_LEVEL', self.logLevel)).upper()
-        except TypeError as e:
-            logging.warning(f'Error Message: {e}')
-            logging.warning(
-                'Incorrect type for configuration parameter for log level provided. Defaulting to INFO level.')
+            self.logLevel = str(os.environ.get('LOG_LEVEL', self.logLevel)).upper()
+        except:
+            warnMsg = f'Casting error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
+            logging.warning(warnMsg)
         try:
             logging.getLogger().setLevel(logging.getLevelName(self.logLevel))
-        except ValueError as e:
-            logging.warning(f'Error Message: {e}')
-            logging.warning(
-                'Invalid configuration parameter for log level provided. Defaulting to INFO level.')
-
+        except:
+            warnMsg = f'Validation error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
+            logging.warning(warnMsg)
+        
+        # Currently the code will check and validate all config variables before stopping.
+        # Reduces the number of runs needed to validate the config variables.
         envImportSuccess = True
-        try:
-            self.targetBucketName = str(
-                os.getenv('GCLOUD_BUCKET', self.targetBucketName))
-        except TypeError as e:
-            logging.error(f'Error Message: {e}')
-            logging.error(
-                f'Invalid type (expected str) passed for GCloud bucket name.')
-            envImportSuccess = False
 
-        try:
-            self.numberOfMonths = int(
-                os.getenv('NUMBER_OF_MONTHS', self.numberOfMonths))
+        self.targetBucketName = self.configFetch(
+            'GCLOUD_BUCKET', self.targetBucketName, str)
+        envImportSuccess = False if not self.targetBucketName or not envImportSuccess else True
 
-            if self.numberOfMonths < 1:
-                logging.error(
-                    f'Config parameter NUMBER_OF_MONTHS must be >= 1.')
-                envImportSuccess = False
+        self.numberOfMonths = self.configFetch(
+            'NUMBER_OF_MONTHS', self.numberOfMonths, int, lambda x: x > 0)
+        envImportSuccess = False if not self.numberOfMonths or not envImportSuccess else True
 
-        except ValueError as e:
-            logging.error(f'Error Message: {e}')
-            logging.error(
-                f'Non-integer passed for config parameter NUMBER_OF_MONTHS.')
-            envImportSuccess = False
+        self.defaultQueryFolder = self.configFetch(
+            'QUERY_FOLDER', self.defaultQueryFolder, str, lambda x: os.path.isdir(x))
+        envImportSuccess = False if not self.defaultQueryFolder or not envImportSuccess else True
 
-        try:
-            self.defaultQueryFolder = str(
-                os.getenv('QUERY_FOLDER', self.defaultQueryFolder))
-            if not os.path.isdir(self.defaultQueryFolder):
-                logging.error(
-                    f'Default Query folder set by QUERY_FOLDER not found in repo directory.')
-                envImportSuccess = False
+        if type(self.defaultQueryFolder) == str:
+            for queryType in self.queryTemplateDict:
+                self.queryTemplateDict[queryType] = self.configFetch(queryType.upper()+'_QUERY',
+                                                                     self.queryTemplateDict[queryType], str,
+                                                                     lambda x: os.path.isfile(os.path.join(self.defaultQueryFolder, x)))
+                envImportSuccess = False if not self.queryTemplateDict[
+                    queryType] or not envImportSuccess else True
+
+        for credPart in self.dbParams:
+            if credPart == 'PORT':
+                self.dbParams[credPart] = self.configFetch(
+                    'DB_'+credPart, self.dbParams[credPart], int, lambda x: x > 0)
             else:
-                for queryType in self.queryTemplateDict:
-                    if not self.setAndVerifySQLFile(queryType):
-                        envImportSuccess = False
-        except TypeError as e:
-            logging.error(f'Error Message: {e}')
-            logging.error(
-                f'Invalid type (expected str) passed for configuration parameter QUERY_FOLDER.')
-            envImportSuccess = False
+                self.dbParams[credPart] = self.configFetch(
+                    'DB_'+credPart, self.dbParams[credPart], str)
+            envImportSuccess = False if not self.dbParams[credPart] or not envImportSuccess else True
 
-        if not self.setAndVerifyDBCreds():
-            envImportSuccess = False
-
-        if not self.setAndVerifyGCPCreds():
-            envImportSuccess = False
+        self.gcpParams = self.configFetch(
+            'GCP_KEY', casting=lambda x: json.loads(str(x)))
+        envImportSuccess = False if not self.gcpParams or not envImportSuccess else True
 
         if not envImportSuccess:
             sys.exit('Exiting due to configuration parameter import problems.')
