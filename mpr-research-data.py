@@ -160,11 +160,11 @@ class Config:
         if (casting is not None):
             try:
                 value = casting(value)
-            except:
+            except ValueError:
                 errorMsg = f'Casting error for config item "{name}" value "{value}".'
                 logging.error(errorMsg)
                 return None
-                
+
         if (validation is not None and not validation(value)):
             errorMsg = f'Validation error for config item "{name}" value "{value}".'
             logging.error(errorMsg)
@@ -176,14 +176,14 @@ class Config:
         try:
             self.logLevel = str(os.environ.get(
                 'LOG_LEVEL', self.logLevel)).upper()
-        except:
-            warnMsg = f'Casting error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
+        except ValueError:
+            warnMsg = f'Casting error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(logging.root.level)}.'
             logging.warning(warnMsg)
 
         try:
             logging.getLogger().setLevel(logging.getLevelName(self.logLevel))
-        except:
-            warnMsg = f'Validation error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
+        except ValueError:
+            warnMsg = f'Validation error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(logging.root.level)}.'
             logging.warning(warnMsg)
 
         # Currently the code will check and validate all config variables before stopping.
