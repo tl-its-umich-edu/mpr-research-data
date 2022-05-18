@@ -6,6 +6,8 @@ import sys
 import pandas as pd
 import sqlalchemy as sql
 from google.cloud import storage
+from google.cloud import exceptions as GCPExceptions
+from google.auth import exceptions as GAuthExceptions
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s',
@@ -22,24 +24,40 @@ def makeDBConnection(dbParams):
     try:
         connectString = f'mysql+pymysql://{dbParams["USER"]}:{dbParams["PASSWORD"]}@{dbParams["HOST"]}:{dbParams["PORT"]}/{dbParams["NAME"]}'
         engine = sql.create_engine(connectString)
-        logging.info('DB connection established.')
+        engine.connect()
+        logging.info('DB connection established and validated.')
         return engine
 
-    except Exception as e:
+    except sql.exc.OperationalError as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to establish DB connection.')
         sys.exit('Exiting due to failed DB connection.')
 
 
-def makeGCPConnection(gcpParams):
+def makeGCPConnection(gcpParams, targetBucketName):
 
     try:
         client = storage.Client.from_service_account_info(gcpParams)
-        logging.info('GCP connection established.')
-        return client
+        bucket = client.bucket(targetBucketName)
+        if not bucket.exists():
+            logging.error(
+                f'Bucket {targetBucketName} in {client.project} not found.')
+            sys.exit('Exiting due to invalid bucket name.')
+        else:
+            logging.info(
+                f'Bucket {targetBucketName} found in {client.project}.')
 
-    except Exception as e:
-        logging.error(f'Error Message: {e}')
+        logging.info('GCP connection established and validated.')
+        return bucket
+
+    except GAuthExceptions.RefreshError as e:
+        logging.error(f'Account Error: {e}')
+        logging.error(
+            f'Failed to find GCP service account. Check GCP JSON Credentials.')
+        sys.exit('Exiting due to failed GCP connection.')
+
+    except ValueError as e:
+        logging.error(f'Value Error: {e}')
         logging.error('Failed to establish GCP connection.')
         sys.exit('Exiting due to failed GCP connection.')
 
@@ -66,7 +84,7 @@ def courseQueryMaker(courseQueryTemplate, monthsModifier, engine, defaultQueryFo
 
         return courseDF
 
-    except Exception as e:
+    except sql.exc.OperationalError as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to retrieve Course List.')
         sys.exit('Exiting due to failure in Course List retrieval.')
@@ -82,7 +100,7 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
             retrieveDF = pd.read_sql(retrieveQuery, connection)
         logging.info('Course Data retrieved...')
 
-    except Exception as e:
+    except sql.exc.OperationalError as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to retrieve Course Data.')
         sys.exit('Exiting due to failure in Course Data retrieval.')
@@ -90,9 +108,8 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
     return retrieveDF
 
 
-def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName):
+def sliceAndPushToGCP(courseDF, retrieveDF, bucket):
 
-    bucket = client.bucket(targetBucketName)
     allSliced, allSaved = True, True
 
     for _, row in courseDF.iterrows():
@@ -118,7 +135,7 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName):
             blob.upload_from_filename(outputFilename)
             os.remove(outputFilename)
 
-        except Exception as e:
+        except GCPExceptions.NotFound as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Failed to upload Course Data for {outputFilename} to GCP.')
@@ -150,7 +167,7 @@ class Config:
             raise NameError('Name not accepted in set() method')
 
     def configFetch(self, name, default=None, casting=None, validation=None, valErrorMsg=None):
-        value = os.getenv(name, default)
+        value = os.environ.get(name, default)
         if (casting is not None):
             try:
                 value = casting(value)
@@ -158,18 +175,17 @@ class Config:
                 errorMsg = f'Casting error for config item "{name}" value "{value}".'
                 logging.error(errorMsg)
                 return None
-                #raise TypeError(errorMsg)
         if (validation is not None and not validation(value)):
             errorMsg = f'Validation error for config item "{name}" value "{value}".'
             logging.error(errorMsg)
             return None
-            #raise ValueError(errorMsg)
         return value
 
     def setFromEnv(self):
 
         try:
-            self.logLevel = str(os.environ.get('LOG_LEVEL', self.logLevel)).upper()
+            self.logLevel = str(os.environ.get(
+                'LOG_LEVEL', self.logLevel)).upper()
         except:
             warnMsg = f'Casting error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
             logging.warning(warnMsg)
@@ -178,7 +194,7 @@ class Config:
         except:
             warnMsg = f'Validation error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
             logging.warning(warnMsg)
-        
+
         # Currently the code will check and validate all config variables before stopping.
         # Reduces the number of runs needed to validate the config variables.
         envImportSuccess = True
@@ -232,7 +248,7 @@ def main():
     # ESTABLISH CONNECTIONS
     # --------------------------------------------------------------------------
     sqlEngine = makeDBConnection(config.dbParams)
-    gcpClient = makeGCPConnection(config.gcpParams)
+    gcpBucket = makeGCPConnection(config.gcpParams, config.targetBucketName)
 
     # RETRIEVE COURSE INFO
     # --------------------------------------------------------------------------
@@ -251,7 +267,7 @@ def main():
     # SEND TO GCP BUCKET
     # --------------------------------------------------------------------------
     allSliced, allSaved = sliceAndPushToGCP(courseQueryDF, retrieveQueryDF,
-                                            gcpClient, config.targetBucketName)
+                                            gcpBucket)
 
     # This is because even if one course fails to save or upload
     # The code can still attempt to keep running for the other courses.
