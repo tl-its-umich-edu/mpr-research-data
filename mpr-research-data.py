@@ -164,6 +164,7 @@ class Config:
                 errorMsg = f'Casting error for config item "{name}" value "{value}".'
                 logging.error(errorMsg)
                 return None
+                
         if (validation is not None and not validation(value)):
             errorMsg = f'Validation error for config item "{name}" value "{value}".'
             logging.error(errorMsg)
@@ -178,6 +179,7 @@ class Config:
         except:
             warnMsg = f'Casting error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(self.logLevel)}.'
             logging.warning(warnMsg)
+
         try:
             logging.getLogger().setLevel(logging.getLevelName(self.logLevel))
         except:
@@ -202,7 +204,7 @@ class Config:
 
         if type(self.defaultQueryFolder) == str:
             for queryType in self.queryTemplateDict:
-                self.queryTemplateDict[queryType] = self.configFetch(queryType.upper()+'_QUERY',
+                self.queryTemplateDict[queryType] = self.configFetch(queryType.upper() + '_QUERY',
                                                                      self.queryTemplateDict[queryType], str,
                                                                      lambda x: os.path.isfile(os.path.join(self.defaultQueryFolder, x)))
                 envImportSuccess = False if not self.queryTemplateDict[
@@ -211,10 +213,10 @@ class Config:
         for credPart in self.dbParams:
             if credPart == 'PORT':
                 self.dbParams[credPart] = self.configFetch(
-                    'DB_'+credPart, self.dbParams[credPart], int, lambda x: x > 0)
+                    'DB_' + credPart, self.dbParams[credPart], int, lambda x: x > 0)
             else:
                 self.dbParams[credPart] = self.configFetch(
-                    'DB_'+credPart, self.dbParams[credPart], str)
+                    'DB_' + credPart, self.dbParams[credPart], str)
             envImportSuccess = False if not self.dbParams[credPart] or not envImportSuccess else True
 
         self.gcpParams = self.configFetch(
