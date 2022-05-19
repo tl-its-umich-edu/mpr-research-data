@@ -6,59 +6,64 @@ import sys
 import pandas as pd
 import sqlalchemy as sql
 from google.cloud import storage
+from google.cloud import exceptions as GCPExceptions
+from google.auth import exceptions as GAuthExceptions
 
 logging.basicConfig(
-    format="%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] - %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S%z",
+    format='%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S%z',
     level=logging.INFO
 )
-
-# SETUP CONFIG VARIABLES
-# --------------------------------------------------------------------------
-targetBucketName = os.getenv('GCLOUD_BUCKET', 'mpr-research-data-uploads')
-
-numberOfMonths = os.getenv('NUMBER_OF_MONTHS', 4)
-
-defaultQueryFolder = os.getenv('QUERY_FOLDER', 'queries')
-queryTemplateDict = {'course': os.getenv('COURSE_QEURY', 'courseQuery.sql'),
-                     'retrieve': os.getenv('RETRIEVE_QUERY', 'retrieveQuery.sql')}
 
 
 # FUNCTIONS
 # --------------------------------------------------------------------------
 
-def getDBCreds():
+def makeDBConnection(dbParams):
 
-    dbCredsDefaultDict = {'NAME': None,
-                          'USER': None,
-                          'PASSWORD': None,
-                          'HOST': None,
-                          'PORT': 3306}
-    dbCredsDict = {}
+    try:
+        connectString = f'mysql+pymysql://{dbParams["USER"]}:{dbParams["PASSWORD"]}@{dbParams["HOST"]}:{dbParams["PORT"]}/{dbParams["NAME"]}'
+        engine = sql.create_engine(connectString)
+        engine.connect()
+        logging.info('DB connection established and validated.')
+        return engine
 
-    allKeyPartsFound = True
-    for credPart in dbCredsDefaultDict:
-        dbCredsDict[credPart] = os.getenv(
-            'DB_' + credPart, dbCredsDefaultDict[credPart])
+    except sql.exc.OperationalError as e:
+        logging.error(f'Error Message: {e}')
+        logging.error('Failed to establish DB connection.')
+        sys.exit('Exiting due to failed DB connection.')
 
-        if not dbCredsDict[credPart]:
+
+def makeGCPConnection(gcpParams, targetBucketName):
+
+    try:
+        client = storage.Client.from_service_account_info(gcpParams)
+        bucket = client.bucket(targetBucketName)
+        if not bucket.exists():
             logging.error(
-                f'Did not find .env variable for M-Write Peer Review production DB key: {credPart}')
-            allKeyPartsFound = False
+                f'Bucket {targetBucketName} in {client.project} not found.')
+            sys.exit('Exiting due to invalid bucket name.')
+        else:
+            logging.info(
+                f'Bucket {targetBucketName} found in {client.project}.')
 
-    if not allKeyPartsFound:
-        sys.exit('Exiting.')
+        logging.info('GCP connection established and validated.')
+        return bucket
 
-    return dbCredsDict
+    except GAuthExceptions.RefreshError as e:
+        logging.error(f'Account Error: {e}')
+        logging.error(
+            f'Failed to find GCP service account. Check GCP JSON Credentials.')
+        sys.exit('Exiting due to failed GCP connection.')
+
+    except ValueError as e:
+        logging.error(f'Value Error: {e}')
+        logging.error('Failed to establish GCP connection.')
+        sys.exit('Exiting due to failed GCP connection.')
 
 
-def getGCPCreds() -> dict:
-    gcpCredsDict = json.loads(os.getenv('GCP_KEY'))
-    return gcpCredsDict
-
-
-def queryRetriever(queryName, queryModifier=False,
-                   queryFolder=defaultQueryFolder):
+def queryRetriever(queryName, queryFolder, queryModifier=False,
+                   ):
     with open(os.path.join(queryFolder, queryName)) as queryFile:
         queryLines = ''.join(queryFile.readlines())
 
@@ -68,69 +73,44 @@ def queryRetriever(queryName, queryModifier=False,
     return queryLines
 
 
-def makeDBConnection(dbParams):
+def courseQueryMaker(courseQueryTemplate, monthsModifier, engine, defaultQueryFolder):
 
     try:
-        connectString = f'mysql+pymysql://{dbParams["USER"]}:{dbParams["PASSWORD"]}@{dbParams["HOST"]}:{dbParams["PORT"]}/{dbParams["NAME"]}'
-        engine = sql.create_engine(connectString)
-        logging.info('DB connection established.')
-        return engine
-
-    except Exception as e:
-        logging.error(f'Error Message: {e}')
-        logging.error('Failed to establish DB connection.')
-        sys.exit('Exiting.')
-
-
-def makeGCPConnection(gcpParams):
-
-    try:
-        client = storage.Client.from_service_account_info(gcpParams)
-        logging.info('GCP connection established.')
-        return client
-
-    except Exception as e:
-        logging.error(f'Error Message: {e}')
-        logging.error('Failed to establish GCP connection.')
-        sys.exit('Exiting.')
-
-
-def courseQueryMaker(courseQueryTemplate, monthsModifier, engine):
-
-    try:
-        courseQuery = queryRetriever(courseQueryTemplate, monthsModifier)
+        courseQuery = queryRetriever(
+            courseQueryTemplate, defaultQueryFolder, str(monthsModifier))
         with engine.connect() as connection:
             courseDF = pd.read_sql(courseQuery, connection)
         logging.info('Courses retrieved...')
 
         return courseDF
 
-    except Exception as e:
+    except sql.exc.OperationalError as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to retrieve Course List.')
-        sys.exit('Exiting.')
+        sys.exit('Exiting due to failure in Course List retrieval.')
 
 
-def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine):
+def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFolder):
 
     try:
         courseIDString = ','.join(map(str, courseIDs))
-        retrieveQuery = queryRetriever(retrieveQueryTemplate, courseIDString)
+        retrieveQuery = queryRetriever(
+            retrieveQueryTemplate, defaultQueryFolder, courseIDString)
         with engine.connect() as connection:
             retrieveDF = pd.read_sql(retrieveQuery, connection)
         logging.info('Course Data retrieved...')
 
-    except Exception as e:
+    except sql.exc.OperationalError as e:
         logging.error(f'Error Message: {e}')
         logging.error('Failed to retrieve Course Data.')
-        sys.exit('Exiting.')
+        sys.exit('Exiting due to failure in Course Data retrieval.')
 
     return retrieveDF
 
 
-def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucketName):
+def sliceAndPushToGCP(courseDF, retrieveDF, bucket):
 
-    bucket = client.bucket(targetBucketName)
+    allSliced, allSaved = True, True
 
     for _, row in courseDF.iterrows():
         (courseID, courseName) = row
@@ -139,56 +119,159 @@ def sliceAndPushToGCP(courseDF, retrieveDF, client, targetBucketName=targetBucke
         try:
             logging.info(f'Slicing: {outputFilename}')
             saveDF = retrieveDF[retrieveDF['CourseID'] == courseID]
-            saveDF.to_csv(outputFilename, sep="\t", quoting=3,
-                          quotechar="", escapechar="\\")
-
-        except Exception as e:
-            logging.error(f'Error Message: {e}')
-            logging.error(f'Failed to save Course Data for {outputFilename}.')
-            continue
-
-        try:
             logging.info(f'Saving to GCP: {outputFilename}')
             blob = bucket.blob(outputFilename)
-            blob.upload_from_filename(outputFilename)
-            os.remove(outputFilename)
-        except Exception as e:
+            blob.upload_from_string(saveDF.to_csv(
+                sep='\t', quoting=3, quotechar='', escapechar='\\'), 'text/tsv')
+
+        except GCPExceptions.NotFound as e:
             logging.error(f'Error Message: {e}')
             logging.error(
                 f'Failed to upload Course Data for {outputFilename} to GCP.')
+            allSaved = False
             continue
 
-    return True
+    return allSliced, allSaved
 
 
-# RETRIEVE KEYS
-# --------------------------------------------------------------------------
+class Config:
+    def __init__(self):
+        self.logLevel = logging.INFO
+        self.targetBucketName: str = 'mpr-research-data-uploads'
+        self.numberOfMonths: int = 4
+        self.defaultQueryFolder: str = 'queries'
+        self.queryTemplateDict: str = {'course': 'courseQuery.sql',
+                                       'retrieve': 'retrieveQuery.sql'}
+        self.dbParams: dict = {'NAME': None,
+                               'USER': None,
+                               'PASSWORD': None,
+                               'HOST': None,
+                               'PORT': 3306}
+        self.gcpParams: dict = {}
 
-dbParams = getDBCreds()
-gcpParams = getGCPCreds()
+    def set(self, name, value):
+        if name in self.__dict__:
+            self.name = value
+        else:
+            raise NameError('Name not accepted in set() method')
+
+    def configFetch(self, name, default=None, casting=None, validation=None, valErrorMsg=None):
+        value = os.environ.get(name, default)
+        if (casting is not None):
+            try:
+                value = casting(value)
+            except ValueError:
+                errorMsg = f'Casting error for config item "{name}" value "{value}".'
+                logging.error(errorMsg)
+                return None
+
+        if (validation is not None and not validation(value)):
+            errorMsg = f'Validation error for config item "{name}" value "{value}".'
+            logging.error(errorMsg)
+            return None
+        return value
+
+    def setFromEnv(self):
+
+        try:
+            self.logLevel = str(os.environ.get(
+                'LOG_LEVEL', self.logLevel)).upper()
+        except ValueError:
+            warnMsg = f'Casting error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(logging.root.level)}.'
+            logging.warning(warnMsg)
+
+        try:
+            logging.getLogger().setLevel(logging.getLevelName(self.logLevel))
+        except ValueError:
+            warnMsg = f'Validation error for config item LOG_LEVEL value. Defaulting to {logging.getLevelName(logging.root.level)}.'
+            logging.warning(warnMsg)
+
+        # Currently the code will check and validate all config variables before stopping.
+        # Reduces the number of runs needed to validate the config variables.
+        envImportSuccess = True
+
+        self.targetBucketName = self.configFetch(
+            'GCLOUD_BUCKET', self.targetBucketName, str)
+        envImportSuccess = False if not self.targetBucketName or not envImportSuccess else True
+
+        self.numberOfMonths = self.configFetch(
+            'NUMBER_OF_MONTHS', self.numberOfMonths, int, lambda x: x > 0)
+        envImportSuccess = False if not self.numberOfMonths or not envImportSuccess else True
+
+        self.defaultQueryFolder = self.configFetch(
+            'QUERY_FOLDER', self.defaultQueryFolder, str, lambda x: os.path.isdir(x))
+        envImportSuccess = False if not self.defaultQueryFolder or not envImportSuccess else True
+
+        if type(self.defaultQueryFolder) == str:
+            for queryType in self.queryTemplateDict:
+                self.queryTemplateDict[queryType] = self.configFetch(queryType.upper() + '_QUERY',
+                                                                     self.queryTemplateDict[queryType], str,
+                                                                     lambda x: os.path.isfile(os.path.join(self.defaultQueryFolder, x)))
+                envImportSuccess = False if not self.queryTemplateDict[
+                    queryType] or not envImportSuccess else True
+
+        for credPart in self.dbParams:
+            if credPart == 'PORT':
+                self.dbParams[credPart] = self.configFetch(
+                    'DB_' + credPart, self.dbParams[credPart], int, lambda x: x > 0)
+            else:
+                self.dbParams[credPart] = self.configFetch(
+                    'DB_' + credPart, self.dbParams[credPart], str)
+            envImportSuccess = False if not self.dbParams[credPart] or not envImportSuccess else True
+
+        self.gcpParams = self.configFetch(
+            'GCP_KEY', casting=lambda x: json.loads(str(x)))
+        envImportSuccess = False if not self.gcpParams or not envImportSuccess else True
+
+        if not envImportSuccess:
+            sys.exit('Exiting due to configuration parameter import problems.')
+        else:
+            logging.info('All configuration parameters set up successfully.')
 
 
-# ESTABLISH CONNECTIONS
-# --------------------------------------------------------------------------
-sqlEngine = makeDBConnection(dbParams)
-gcpClient = makeGCPConnection(gcpParams)
-# sys.stdout.flush()
+def main():
 
-# RETRIEVE COURSE INFO
-# --------------------------------------------------------------------------
-courseQueryDF = courseQueryMaker(
-    queryTemplateDict['course'], numberOfMonths, sqlEngine)
-# sys.stdout.flush()
+    # GET CONFIG VARIABLES
+    # --------------------------------------------------------------------------
+    config = Config()
+    config.setFromEnv()
 
-# RETRIEVE COURSE DATA
-# --------------------------------------------------------------------------
-retrieveQueryDF = retrieveQueryMaker(
-    queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine)
-# sys.stdout.flush()
+    # ESTABLISH CONNECTIONS
+    # --------------------------------------------------------------------------
+    sqlEngine = makeDBConnection(config.dbParams)
+    gcpBucket = makeGCPConnection(config.gcpParams, config.targetBucketName)
 
-# SEND TO GCP BUCKET
-# --------------------------------------------------------------------------
-sliceAndPushToGCP(courseQueryDF, retrieveQueryDF, gcpClient, targetBucketName)
-# sys.stdout.flush()
+    # RETRIEVE COURSE INFO
+    # --------------------------------------------------------------------------
+    courseQueryDF = courseQueryMaker(
+        config.queryTemplateDict['course'], config.numberOfMonths, sqlEngine, config.defaultQueryFolder)
 
-logging.info('All steps complete.')
+    if len(courseQueryDF) == 0:
+        logging.info('No courses to be retrieved.')
+        sys.exit('Exiting due to no courses being found in current configuration.')
+
+    # RETRIEVE COURSE DATA
+    # --------------------------------------------------------------------------
+    retrieveQueryDF = retrieveQueryMaker(
+        config.queryTemplateDict['retrieve'], courseQueryDF['id'], sqlEngine, config.defaultQueryFolder)
+
+    # SEND TO GCP BUCKET
+    # --------------------------------------------------------------------------
+    allSliced, allSaved = sliceAndPushToGCP(courseQueryDF, retrieveQueryDF,
+                                            gcpBucket)
+
+    # This is because even if one course fails to save or upload
+    # The code can still attempt to keep running for the other courses.
+    # The warnings here adds a final message that there was an error
+    # at some point in slicing and saving the data to GCP
+
+    if not allSliced:
+        logging.warning(
+            'Not all course data could be sliced correctly.')
+    if not allSaved:
+        logging.warning(
+            'Not all course data could be saved to GCP correctly.')
+
+
+if '__main__' == __name__:
+    main()
