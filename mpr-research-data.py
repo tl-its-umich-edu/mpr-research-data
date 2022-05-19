@@ -12,7 +12,7 @@ from google.auth import exceptions as GAuthExceptions
 logging.basicConfig(
     format='%(asctime)s %(levelname)-4s [%(filename)s:%(lineno)d] - %(message)s',
     datefmt='%Y-%m-%dT%H:%M:%S%z',
-    level='INFO'
+    level=logging.INFO
 )
 
 
@@ -136,7 +136,7 @@ def sliceAndPushToGCP(courseDF, retrieveDF, bucket):
 
 class Config:
     def __init__(self):
-        self.logLevel: str = 'INFO'
+        self.logLevel = logging.INFO
         self.targetBucketName: str = 'mpr-research-data-uploads'
         self.numberOfMonths: int = 4
         self.defaultQueryFolder: str = 'queries'
