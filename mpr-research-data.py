@@ -122,7 +122,7 @@ def sliceAndPushToGCP(courseDF, retrieveDF, bucket):
             logging.info(f'Saving to GCP: {outputFilename}')
             blob = bucket.blob(outputFilename)
             blob.upload_from_string(saveDF.to_csv(
-                sep="\t", quoting=3, quotechar="", escapechar="\\"), 'text/tsv')
+                sep='\t', quoting=3, quotechar='', escapechar='\\'), 'text/tsv')
 
         except GCPExceptions.NotFound as e:
             logging.error(f'Error Message: {e}')
