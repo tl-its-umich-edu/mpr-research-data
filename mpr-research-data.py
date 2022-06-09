@@ -143,22 +143,18 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
 
 def updateCourseTimestampTable(courseDF, retrieveDF, client, targetTableID, timestampTableID):
 
-    timestampQuery = f"SELECT * FROM `{timestampTableID}`"
-
-    currentTime = datetime.datetime.now().isoformat()
     timestampDFCols = ['CourseID', 'Course',
                        'CommentCount', 'CourseUploadTime', 'isPredicted']
-    timestampDFRowList = []
 
+    timestampQuery = f"SELECT * FROM `{timestampTableID}`"
     try:
-        logging.info(f'Found existing timestamp info.')
         timestampDF = client.query(timestampQuery).result().to_dataframe()
-    except:
+        logging.info(f'Found existing timestamp schema.')
+    except GCPExceptions.NotFound as e:
         timestampDF = pd.DataFrame(columns=timestampDFCols)
 
-    # print(timestampDF)
-    # sys.exit()
-
+    currentTime = datetime.datetime.now().isoformat()
+    timestampDFRowList = []
     for _, row in courseDF.iterrows():
         (courseID, courseName) = row
         currentLen = len(retrieveDF[retrieveDF['CourseID'] == courseID])
@@ -383,8 +379,6 @@ def main():
         config.gcpParams, config.targetBucketName)
     bqClient = makeGCPBigQueryConnection(
         config.gcpParams, config.targetTableID, config.timestampTableID)
-
-    #wipeAllBQData(bqClient, config)
 
     # RETRIEVE COURSE INFO
     # --------------------------------------------------------------------------
