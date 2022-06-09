@@ -2,3 +2,5 @@ pandas==1.4
 SQLAlchemy==1.4
 PyMySQL==1.0
 google.cloud.storage==2.3
+google.cloud.bigquery==3.1
+db-dtypes==1.0

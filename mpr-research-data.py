@@ -2,10 +2,12 @@ import json
 import logging
 import os
 import sys
+import datetime
 
 import pandas as pd
 import sqlalchemy as sql
 from google.cloud import storage
+from google.cloud import bigquery
 from google.cloud import exceptions as GCPExceptions
 from google.auth import exceptions as GAuthExceptions
 
@@ -34,7 +36,7 @@ def makeDBConnection(dbParams):
         sys.exit('Exiting due to failed DB connection.')
 
 
-def makeGCPConnection(gcpParams, targetBucketName):
+def makeGCPBucketConnection(gcpParams, targetBucketName):
 
     try:
         client = storage.Client.from_service_account_info(gcpParams)
@@ -49,6 +51,37 @@ def makeGCPConnection(gcpParams, targetBucketName):
 
         logging.info('GCP connection established and validated.')
         return bucket
+
+    except GAuthExceptions.RefreshError as e:
+        logging.error(f'Account Error: {e}')
+        logging.error(
+            f'Failed to find GCP service account. Check GCP JSON Credentials.')
+        sys.exit('Exiting due to failed GCP connection.')
+
+    except ValueError as e:
+        logging.error(f'Value Error: {e}')
+        logging.error('Failed to establish GCP connection.')
+        sys.exit('Exiting due to failed GCP connection.')
+
+
+def makeGCPBigQueryConnection(gcpParams, targetTableID, timestampTableID):
+
+    try:
+        client = bigquery.Client.from_service_account_info(gcpParams)
+
+        for tableID in [targetTableID, timestampTableID]:
+            try:
+                client.get_table(tableID)
+                logging.info(
+                    f'Table {tableID} found in {client.project}.')
+            except GCPExceptions.NotFound as e:
+                logging.error(f'Not found Error: {e}')
+                logging.error(
+                    f'Table {tableID} in {client.project} not found.')
+                sys.exit('Exiting due to invalid table name.')
+
+        logging.info('GCP connection established and validated.')
+        return client
 
     except GAuthExceptions.RefreshError as e:
         logging.error(f'Account Error: {e}')
@@ -108,9 +141,93 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
     return retrieveDF
 
 
-def sliceAndPushToGCP(courseDF, retrieveDF, bucket):
+def updateCourseTimestampTable(courseDF, retrieveDF, client, targetTableID, timestampTableID):
 
-    allSliced, allSaved = True, True
+    timestampQuery = f"SELECT * FROM `{timestampTableID}`"
+
+    currentTime = datetime.datetime.now().isoformat()
+    timestampDFCols = ['CourseID', 'Course',
+                       'CommentCount', 'CourseUploadTime', 'isPredicted']
+    timestampDFRowList = []
+
+    try:
+        logging.info(f'Found existing timestamp info.')
+        timestampDF = client.query(timestampQuery).result().to_dataframe()
+    except:
+        timestampDF = pd.DataFrame(columns=timestampDFCols)
+
+    # print(timestampDF)
+    # sys.exit()
+
+    for _, row in courseDF.iterrows():
+        (courseID, courseName) = row
+        currentLen = len(retrieveDF[retrieveDF['CourseID'] == courseID])
+        logging.info(f'Processing data for {courseID} - {courseName}.')
+
+        if courseID not in timestampDF['CourseID'].values:
+            logging.info(f'{courseName} new to table, adding to GCP.')
+            pushCourseToGCPTable(courseID, retrieveDF,
+                                 client, targetTableID, False)
+            timestampDFRowList.append(
+                [courseID, courseName, currentLen, currentTime, False])
+
+        else:
+            recordedLen = timestampDF[timestampDF['CourseID']
+                                      == courseID]['CommentCount'].values[0]
+            if recordedLen == currentLen:
+                logging.info(
+                    f'{courseName} already stored and unchanged, skipping.')
+                timestampDFRowList.append(
+                    timestampDF[timestampDF['CourseID'] == courseID].values[0])
+            else:
+                logging.info(f'{courseName} updated, pushing to GCP.')
+                pushCourseToGCPTable(courseID, retrieveDF,
+                                     client, targetTableID, True)
+                timestampDFRowList.append(
+                    [courseID, courseName, currentLen, currentTime, False])
+
+    newTimestampDF = pd.DataFrame(
+        columns=timestampDFCols, data=timestampDFRowList)
+
+    jobConfig = bigquery.LoadJobConfig(
+        schema=[],
+        write_disposition="WRITE_TRUNCATE",
+    )
+    makeTimestampJob = client.load_table_from_dataframe(
+        newTimestampDF,
+        timestampTableID,
+        job_config=jobConfig
+    )
+
+
+def pushCourseToGCPTable(courseID, retrieveDF, client, tableID, updateCourse=False):
+
+    if updateCourse:
+        logging.info(f'Deleting past {courseID} data and updating...')
+        deleteQuery = f"DELETE FROM `{tableID}` WHERE CourseID = {courseID}"
+        deleteJob = client.query(deleteQuery)
+
+    saveDF = retrieveDF[retrieveDF['CourseID'] == courseID]
+    jobConfig = bigquery.LoadJobConfig()
+    try:
+        logging.info(f'Saving {courseID} to GCP: {tableID}')
+        uploadJob = client.load_table_from_dataframe(
+            saveDF,
+            tableID,
+            job_config=jobConfig
+        )
+        return True
+
+    except GCPExceptions.NotFound as e:
+        logging.error(f'Error Message: {e}')
+        logging.error(
+            f'Failed to upload Course Data for {courseID} to GCP table.')
+        return False
+
+
+def sliceAndPushToGCPBucket(courseDF, retrieveDF, bucket):
+
+    allSaved = True
 
     for _, row in courseDF.iterrows():
         (courseID, courseName) = row
@@ -131,13 +248,24 @@ def sliceAndPushToGCP(courseDF, retrieveDF, bucket):
             allSaved = False
             continue
 
-    return allSliced, allSaved
+    return allSaved
+
+
+# For debugging only
+def wipeAllBQData(client, config):
+    client.query(f'DELETE FROM `{config.targetTableID}` WHERE true')
+    client.query(f'DELETE FROM `{config.timestampTableID}` WHERE true')
+    logging.info('Wiped data from all tables.')
+    sys.exit()
 
 
 class Config:
     def __init__(self):
         self.logLevel = logging.INFO
         self.targetBucketName: str = 'mpr-research-data-uploads'
+        self.pushToBucket = 'False'
+        self.targetTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-data-upload'
+        self.timestampTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-upload-timestamp'
         self.numberOfMonths: int = 4
         self.defaultQueryFolder: str = 'queries'
         self.queryTemplateDict: str = {'course': 'courseQuery.sql',
@@ -194,6 +322,18 @@ class Config:
             'GCLOUD_BUCKET', self.targetBucketName, str)
         envImportSuccess = False if not self.targetBucketName or not envImportSuccess else True
 
+        self.pushToBucket = self.configFetch(
+            'UPLOAD_TO_BUCKET', self.pushToBucket, str, lambda x: x in ['True', 'False'])
+        envImportSuccess = False if not self.pushToBucket or not envImportSuccess else True
+
+        self.targetTableID = self.configFetch(
+            'GCLOUD_TABLE', self.targetTableID, str)
+        envImportSuccess = False if not self.targetTableID or not envImportSuccess else True
+
+        self.timestampTableID = self.configFetch(
+            'GCLOUD_TIMESTAMP_TABLE', self.timestampTableID, str)
+        envImportSuccess = False if not self.timestampTableID or not envImportSuccess else True
+
         self.numberOfMonths = self.configFetch(
             'NUMBER_OF_MONTHS', self.numberOfMonths, int, lambda x: x > 0)
         envImportSuccess = False if not self.numberOfMonths or not envImportSuccess else True
@@ -239,7 +379,12 @@ def main():
     # ESTABLISH CONNECTIONS
     # --------------------------------------------------------------------------
     sqlEngine = makeDBConnection(config.dbParams)
-    gcpBucket = makeGCPConnection(config.gcpParams, config.targetBucketName)
+    gcpBucket = makeGCPBucketConnection(
+        config.gcpParams, config.targetBucketName)
+    bqClient = makeGCPBigQueryConnection(
+        config.gcpParams, config.targetTableID, config.timestampTableID)
+
+    #wipeAllBQData(bqClient, config)
 
     # RETRIEVE COURSE INFO
     # --------------------------------------------------------------------------
@@ -257,20 +402,24 @@ def main():
 
     # SEND TO GCP BUCKET
     # --------------------------------------------------------------------------
-    allSliced, allSaved = sliceAndPushToGCP(courseQueryDF, retrieveQueryDF,
-                                            gcpBucket)
 
-    # This is because even if one course fails to save or upload
-    # The code can still attempt to keep running for the other courses.
-    # The warnings here adds a final message that there was an error
-    # at some point in slicing and saving the data to GCP
+    if config.pushToBucket == 'True':
+        allSaved = sliceAndPushToGCPBucket(courseQueryDF, retrieveQueryDF,
+                                           gcpBucket)
+        # This is because even if one course fails to save or upload
+        # The code can still attempt to keep running for the other courses.
+        # The warnings here adds a final message that there was an error
+        # at some point in slicing and saving the data to GCP
 
-    if not allSliced:
-        logging.warning(
-            'Not all course data could be sliced correctly.')
-    if not allSaved:
-        logging.warning(
-            'Not all course data could be saved to GCP correctly.')
+        if not allSaved:
+            logging.warning(
+                'Not all course data could be saved to GCP correctly.')
+
+    # SEND TO GCP BIGQUERY TABLE
+    # --------------------------------------------------------------------------
+
+    updateCourseTimestampTable(courseQueryDF, retrieveQueryDF,
+                               bqClient, config.targetTableID, config.timestampTableID)
 
 
 if '__main__' == __name__:
