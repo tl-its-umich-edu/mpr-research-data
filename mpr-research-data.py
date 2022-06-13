@@ -251,8 +251,8 @@ def sliceAndPushToGCPBucket(courseDF, retrieveDF, bucket):
 
 # For debugging only
 def wipeAllBQData(client, config):
-    client.query(f'DELETE FROM `{config.bqTableID}`')
-    client.query(f'DELETE FROM `{config.bqTimestampTableID}`')
+    client.query(f'DELETE FROM `{config.bqTableID}` WHERE true')
+    client.query(f'DELETE FROM `{config.bqTimestampTableID}` WHERE true')
     logging.info('Wiped data from all tables.')
     sys.exit()
 
@@ -262,7 +262,7 @@ class Config:
         self.logLevel = logging.INFO
         self.targetBucketName: str = 'mpr-research-data-uploads'
         self.pushToBucket = 'False'
-        self.bqTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-data-upload'
+        self.bqTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-upload-data'
         self.bqTimestampTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-upload-timestamp'
         self.numberOfMonths: int = 4
         self.defaultQueryFolder: str = 'queries'
