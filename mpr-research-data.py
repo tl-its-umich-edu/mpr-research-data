@@ -64,12 +64,12 @@ def makeGCPBucketConnection(gcpParams, targetBucketName):
         sys.exit('Exiting due to failed GCP connection.')
 
 
-def makeGCPBigQueryConnection(gcpParams, targetTableID, timestampTableID):
+def makeGCPBigQueryConnection(gcpParams, bqTableID, bqTimestampTableID):
 
     try:
         client = bigquery.Client.from_service_account_info(gcpParams)
 
-        for tableID in [targetTableID, timestampTableID]:
+        for tableID in [bqTableID, bqTimestampTableID]:
             try:
                 client.get_table(tableID)
                 logging.info(
@@ -141,12 +141,12 @@ def retrieveQueryMaker(retrieveQueryTemplate, courseIDs, engine, defaultQueryFol
     return retrieveDF
 
 
-def updateCourseTimestampTable(courseDF, retrieveDF, client, targetTableID, timestampTableID):
+def updateCourseTimestampTable(courseDF, retrieveDF, client, bqTableID, bqTimestampTableID):
 
     timestampDFCols = ['CourseID', 'Course',
                        'CommentCount', 'CourseUploadTime', 'isPredicted']
 
-    timestampQuery = f"SELECT * FROM `{timestampTableID}`"
+    timestampQuery = f"SELECT * FROM `{bqTimestampTableID}`"
     try:
         timestampDF = client.query(timestampQuery).result().to_dataframe()
         logging.info(f'Found existing timestamp schema.')
@@ -162,10 +162,11 @@ def updateCourseTimestampTable(courseDF, retrieveDF, client, targetTableID, time
 
         if courseID not in timestampDF['CourseID'].values:
             logging.info(f'{courseName} new to table, adding to GCP.')
-            pushCourseToGCPTable(courseID, retrieveDF,
-                                 client, targetTableID, False)
-            timestampDFRowList.append(
-                [courseID, courseName, currentLen, currentTime, False])
+            pushSuccess = pushCourseToGCPTable(courseID, retrieveDF,
+                                               client, bqTableID, False)
+            if pushSuccess:
+                timestampDFRowList.append(
+                    [courseID, courseName, currentLen, currentTime, False])
 
         else:
             recordedLen = timestampDF[timestampDF['CourseID']
@@ -177,10 +178,11 @@ def updateCourseTimestampTable(courseDF, retrieveDF, client, targetTableID, time
                     timestampDF[timestampDF['CourseID'] == courseID].values[0])
             else:
                 logging.info(f'{courseName} updated, pushing to GCP.')
-                pushCourseToGCPTable(courseID, retrieveDF,
-                                     client, targetTableID, True)
-                timestampDFRowList.append(
-                    [courseID, courseName, currentLen, currentTime, False])
+                pushSuccess = pushCourseToGCPTable(courseID, retrieveDF,
+                                                   client, bqTableID, True)
+                if pushSuccess:
+                    timestampDFRowList.append(
+                        [courseID, courseName, currentLen, currentTime, False])
 
     newTimestampDF = pd.DataFrame(
         columns=timestampDFCols, data=timestampDFRowList)
@@ -191,7 +193,7 @@ def updateCourseTimestampTable(courseDF, retrieveDF, client, targetTableID, time
     )
     makeTimestampJob = client.load_table_from_dataframe(
         newTimestampDF,
-        timestampTableID,
+        bqTimestampTableID,
         job_config=jobConfig
     )
 
@@ -249,8 +251,8 @@ def sliceAndPushToGCPBucket(courseDF, retrieveDF, bucket):
 
 # For debugging only
 def wipeAllBQData(client, config):
-    client.query(f'DELETE FROM `{config.targetTableID}` WHERE true')
-    client.query(f'DELETE FROM `{config.timestampTableID}` WHERE true')
+    client.query(f'DELETE FROM `{config.bqTableID}`')
+    client.query(f'DELETE FROM `{config.bqTimestampTableID}`')
     logging.info('Wiped data from all tables.')
     sys.exit()
 
@@ -260,8 +262,8 @@ class Config:
         self.logLevel = logging.INFO
         self.targetBucketName: str = 'mpr-research-data-uploads'
         self.pushToBucket = 'False'
-        self.targetTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-data-upload'
-        self.timestampTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-upload-timestamp'
+        self.bqTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-data-upload'
+        self.bqTimestampTableID = 'mwrite-a835.mpr_research_uploaded_dataset.course-upload-timestamp'
         self.numberOfMonths: int = 4
         self.defaultQueryFolder: str = 'queries'
         self.queryTemplateDict: str = {'course': 'courseQuery.sql',
@@ -322,13 +324,13 @@ class Config:
             'UPLOAD_TO_BUCKET', self.pushToBucket, str, lambda x: x in ['True', 'False'])
         envImportSuccess = False if not self.pushToBucket or not envImportSuccess else True
 
-        self.targetTableID = self.configFetch(
-            'GCLOUD_TABLE', self.targetTableID, str)
-        envImportSuccess = False if not self.targetTableID or not envImportSuccess else True
+        self.bqTableID = self.configFetch(
+            'BQ_TABLE', self.bqTableID, str)
+        envImportSuccess = False if not self.bqTableID or not envImportSuccess else True
 
-        self.timestampTableID = self.configFetch(
-            'GCLOUD_TIMESTAMP_TABLE', self.timestampTableID, str)
-        envImportSuccess = False if not self.timestampTableID or not envImportSuccess else True
+        self.bqTimestampTableID = self.configFetch(
+            'BQ_TIMESTAMP_TABLE', self.bqTimestampTableID, str)
+        envImportSuccess = False if not self.bqTimestampTableID or not envImportSuccess else True
 
         self.numberOfMonths = self.configFetch(
             'NUMBER_OF_MONTHS', self.numberOfMonths, int, lambda x: x > 0)
@@ -378,7 +380,7 @@ def main():
     gcpBucket = makeGCPBucketConnection(
         config.gcpParams, config.targetBucketName)
     bqClient = makeGCPBigQueryConnection(
-        config.gcpParams, config.targetTableID, config.timestampTableID)
+        config.gcpParams, config.bqTableID, config.bqTimestampTableID)
 
     # RETRIEVE COURSE INFO
     # --------------------------------------------------------------------------
@@ -413,7 +415,7 @@ def main():
     # --------------------------------------------------------------------------
 
     updateCourseTimestampTable(courseQueryDF, retrieveQueryDF,
-                               bqClient, config.targetTableID, config.timestampTableID)
+                               bqClient, config.bqTableID, config.bqTimestampTableID)
 
 
 if '__main__' == __name__:
