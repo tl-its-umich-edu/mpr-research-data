@@ -49,7 +49,7 @@ def makeGCPBucketConnection(gcpParams, targetBucketName):
             logging.info(
                 f'Bucket {targetBucketName} found in {client.project}.')
 
-        logging.info('GCP connection established and validated.')
+        logging.info('GCP Bucket connection established and validated.')
         return bucket
 
     except GAuthExceptions.RefreshError as e:
@@ -80,7 +80,7 @@ def makeGCPBigQueryConnection(gcpParams, bqTableID, bqTimestampTableID):
                     f'Table {tableID} in {client.project} not found.')
                 sys.exit('Exiting due to invalid table name.')
 
-        logging.info('GCP connection established and validated.')
+        logging.info('GCP BigQuery connection established and validated.')
         return client
 
     except GAuthExceptions.RefreshError as e:
@@ -377,8 +377,6 @@ def main():
     # ESTABLISH CONNECTIONS
     # --------------------------------------------------------------------------
     sqlEngine = makeDBConnection(config.dbParams)
-    gcpBucket = makeGCPBucketConnection(
-        config.gcpParams, config.targetBucketName)
     bqClient = makeGCPBigQueryConnection(
         config.gcpParams, config.bqTableID, config.bqTimestampTableID)
 
@@ -400,6 +398,9 @@ def main():
     # --------------------------------------------------------------------------
 
     if config.pushToBucket == 'True':
+        gcpBucket = makeGCPBucketConnection(
+            config.gcpParams, config.targetBucketName)
+
         allSaved = sliceAndPushToGCPBucket(courseQueryDF, retrieveQueryDF,
                                            gcpBucket)
         # This is because even if one course fails to save or upload
@@ -409,7 +410,7 @@ def main():
 
         if not allSaved:
             logging.warning(
-                'Not all course data could be saved to GCP correctly.')
+                'Not all course data could be saved to GCP Bucket correctly.')
 
     # SEND TO GCP BIGQUERY TABLE
     # --------------------------------------------------------------------------
