@@ -20,8 +20,15 @@
 Note: You need to have these keys, there are no default values.
 
 4. Adjust variables in the `.env` file before running if not applying defaults:
+   NOTE: Using Buckets are no longer the default. Use BigQuery tables instead to store data.
    > Specify the GCP Bucket info here. Defaults to: mpr-research-data-uploads.
       `GCLOUD_BUCKET`
+   > Specify the BigQuery table to upload data here.
+      Defaults to: mwrite-a835.mpr_research_uploaded_dataset.course-upload-data
+      `BQ_TABLE`
+   > Specify the BigQuery table to upload timestamp and syncing info here.
+   Defaults to: mwrite-a835.mpr_research_uploaded_dataset.course-upload-timestamp
+      `BQ_TIMESTAMP_TABLE`
    > Specify the number of months backwards to search courses. Defaults to 4:
       `NUMBER_OF_MONTHS` 
 
